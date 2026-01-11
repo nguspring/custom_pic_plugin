@@ -239,6 +239,13 @@ oil_painting = "油画,古典"
 
 ## 🙏 致谢
 
+感谢以下开发者为本插件做出的贡献：
+
+- **原作者**：Ptrel - 创建了原版 custom_pic_plugin 插件
+- **Rabbit-Jia-Er** - 添加了多模型调用和命令功能
+- **saberlights Kiuon** - 添加了自拍功能和自然语言命令功能
+- **1021143806** - 原版插件维护者
+
 本插件搜图功能部分代码来自于 https://github.com/XXXxx7258/google_search_plugin
 
 ## 📄 许可证
