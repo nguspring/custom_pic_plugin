@@ -1,7 +1,7 @@
 # Custom Pic Plugin - 智能多模型图片生成插件
 
 > **修改版说明**：本仓库为原版插件的修改版，由 nguspring 维护。
-> - 原版仓库：https://github.com/MaiM-with-u/custom_pic_plugin
+> - 原版仓库：https://github.com/1021143806/custom_pic_plugin
 > - 修改版版本：v3.3.5
 > - 修改说明：详见 [功能添加说明.md](功能添加说明.md)
 
