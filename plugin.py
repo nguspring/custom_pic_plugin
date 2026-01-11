@@ -24,7 +24,7 @@ class CustomPicPlugin(BasePlugin):
     # 插件基本信息
     plugin_name = "custom_pic_plugin"
     plugin_version = "3.3.7"
-    plugin_author = "Ptrel，Rabbit-Jia-Er，saberlights Kiuon，1021143806，nguspring"
+    plugin_author = "1021143806 (Ptrel), Rabbit-Jia-Er, saberlights Kiuon, nguspring"
     enable_plugin = True
     dependencies: List[str] = []
     python_dependencies: List[str] = [
