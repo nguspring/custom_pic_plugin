@@ -239,7 +239,7 @@ class CustomPicPlugin(BasePlugin):
         "cache": {
             "enabled": ConfigField(
                 type=bool,
-                default=True,
+                default=False,
                 description="是否启用结果缓存，相同参数的请求会复用之前的结果",
                 order=1
             ),
