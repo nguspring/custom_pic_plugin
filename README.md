@@ -239,21 +239,11 @@ oil_painting = "油画,古典"
 
 ## 🙏 致谢
 
-感谢以下开发者为本插件做出的贡献：
-
-- **原作者**：Ptrel - 创建了原版 custom_pic_plugin 插件
-- **Rabbit-Jia-Er** - 添加了多模型调用和命令功能
-- **saberlights Kiuon** - 添加了自拍功能和自然语言命令功能
-- **1021143806** - 原版插件维护者
-- **XXXxx7258** - 提供了联网搜索插件的搜图功能，本修改版已将其内置集成
-
-本修改版由 nguspring 维护，在原版基础上新增了定时自拍、智能参考搜索、内置搜索引擎、预设魔搭模型配置等功能。
+本插件搜图功能部分代码来自于 https://github.com/XXXxx7258/google_search_plugin
 
 ## 📄 许可证
 
-本插件主体采用 MIT 许可证。
-
-**注意**：本插件中的智能参考搜索功能（`core/search_engines/` 目录）使用了 [google_search_plugin](https://github.com/XXXxx7258/google_search_plugin) 的代码，该部分采用 AGPL-3.0 许可证。使用或修改该功能时，请遵守 AGPL-3.0 协议的要求。
+本插件采用 AGPL-3.0 许可证。
 
 ## 贡献和反馈
 
@@ -343,6 +333,6 @@ oil_painting = "油画,古典"
 
 ## 🔗 版权信息
 
-- 作者：MaiBot 团队
-- 许可证：MIT
-- 项目主页：https://github.com/MaiM-with-u/maibot
+- 作者：nguspring
+- 许可证：AGPL-3.0
+- 项目主页：https://github.com/nguspring/custom_pic_plugin
