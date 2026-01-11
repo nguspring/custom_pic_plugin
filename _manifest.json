@@ -7,7 +7,7 @@
     "name": "Ptrel，Rabbit-Jia-Er，saberlights Kiuon，1021143806，nguspring",
     "url": "https://github.com/1021143806/custom_pic_plugin"
   },
-  "license": "GPL-v3.0-or-later",
+  "license": "MIT",
   "host_application": {
     "min_version": "0.10.0"
   },
