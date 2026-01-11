@@ -5,6 +5,7 @@
 old/
 __pycache__/
 .claude
+custom_pic_plugin爆改版（修改者NGU-SprinG）/
 
 # 忽略特定文件
 config.toml
