@@ -10,6 +10,7 @@ from .image_utils import ImageProcessor
 from .runtime_state import runtime_state
 from .prompt_optimizer import optimize_prompt
 from .size_utils import get_image_size_async
+from .auto_selfie_manager import auto_selfie_manager
 
 logger = get_logger("pic_command")
 
@@ -598,7 +599,7 @@ class PicConfigCommand(BaseCommand):
     # Command基本信息
     command_name = "pic_config_command"
     command_description = "图片生成配置管理：/dr <操作> [参数]"
-    command_pattern = r"(?:.*，说：\s*)?/dr\s+(?P<action>list|models|config|set|reset|on|off|model|recall|default)(?:\s+(?P<params>.*))?$"
+    command_pattern = r"(?:.*，说：\s*)?/dr\s+(?P<action>list|models|config|set|reset|on|off|model|recall|default|auto_selfie)(?:\s+(?P<params>.*))?$"
 
     def get_config(self, key: str, default=None):
         """使用与PicGenerationCommand相同的配置覆盖"""
@@ -635,7 +636,7 @@ class PicConfigCommand(BaseCommand):
             return False, "无法获取chat_id", True
 
         # 需要管理员权限的操作
-        admin_only_actions = ["set", "reset", "on", "off", "model", "recall", "default"]
+        admin_only_actions = ["set", "reset", "on", "off", "model", "recall", "default", "auto_selfie"]
         if not has_permission and action in admin_only_actions:
             await self.send_text("你无权使用此命令", storage_message=False)
             return False, "没有权限", True
@@ -658,6 +659,8 @@ class PicConfigCommand(BaseCommand):
             return await self._toggle_recall(params, chat_id)
         elif action == "default":
             return await self._set_default_model(params, chat_id)
+        elif action == "auto_selfie":
+            return await self._handle_auto_selfie(params, chat_id)
         else:
             await self.send_text(
                 "配置管理命令使用方法：\n"
@@ -720,6 +723,7 @@ class PicConfigCommand(BaseCommand):
                 message_lines.append("• /dr on|off - 开关插件")
                 message_lines.append("• /dr model on|off <模型ID> - 开关模型")
                 message_lines.append("• /dr recall on|off <模型ID> - 开关撤回")
+                message_lines.append("• /dr auto_selfie on|off - 开关定时自拍")
                 message_lines.append("• /dr default <模型ID> - 设置默认模型")
                 message_lines.append("• /dr set <模型ID> - 设置/dr命令模型")
 
@@ -835,6 +839,7 @@ class PicConfigCommand(BaseCommand):
                 "• /dr on|off - 开关插件",
                 "• /dr model on|off <模型ID> - 开关模型",
                 "• /dr recall on|off <模型ID> - 开关撤回",
+                "• /dr auto_selfie on|off - 开关定时自拍",
                 "• /dr default <模型ID> - 设置默认模型",
                 "• /dr set <模型ID> - 设置/dr命令模型",
                 "• /dr reset - 重置所有配置"
@@ -974,6 +979,139 @@ class PicConfigCommand(BaseCommand):
             return user_id in admin_users
         except Exception:
             return False
+
+    async def _handle_auto_selfie(self, params: str, chat_id: str) -> Tuple[bool, Optional[str], bool]:
+        """处理定时自拍命令"""
+        try:
+            # 检查全局开关
+            global_enabled = self.get_config("auto_selfie.enabled", False)
+            if not global_enabled:
+                await self.send_text("定时自拍功能未在配置中启用，请在配置文件中开启 auto_selfie.enabled")
+                return False, "定时自拍功能未启用", True
+
+            # 解析参数
+            parts = params.strip().split(maxsplit=1) if params else []
+            if not parts:
+                await self.send_text(
+                    "定时自拍命令使用方法：\n"
+                    "/dr auto_selfie on [间隔分钟] - 启动定时自拍（默认30分钟）\n"
+                    "/dr auto_selfie off - 停止定时自拍\n"
+                    "/dr auto_selfie status - 查看定时自拍状态\n"
+                    "/dr auto_selfie config - 查看定时自拍配置"
+                )
+                return False, "缺少参数", True
+
+            action = parts[0].lower()
+
+            if action == "on":
+                # 启动定时自拍
+                interval_minutes = 30  # 默认30分钟
+                if len(parts) > 1:
+                    try:
+                        interval_minutes = int(parts[1])
+                        if interval_minutes < 5 or interval_minutes > 300:
+                            await self.send_text("定时间隔必须在5-300分钟之间")
+                            return False, "定时间隔无效", True
+                    except ValueError:
+                        await self.send_text("定时间隔必须是数字")
+                        return False, "定时间隔格式错误", True
+
+                # 获取配置
+                selfie_style = self.get_config("auto_selfie.selfie_style", "standard")
+                model_id = self.get_config("auto_selfie.model_id", "model1")
+                custom_ask_message = self.get_config("auto_selfie.ask_message", "")
+
+                # 定义回调函数
+                async def selfie_callback(chat_id: str, selfie_style: str, model_id: str, ask_message: str):
+                    """定时自拍回调函数"""
+                    try:
+                        # 添加待处理自拍请求，Action组件会在下次执行时检查并处理
+                        auto_selfie_manager.add_pending_selfie_request(
+                            chat_id=chat_id,
+                            selfie_style=selfie_style,
+                            model_id=model_id,
+                            ask_message=ask_message
+                        )
+                        logger.info(f"[PicConfigCommand] 已添加待处理自拍请求: chat_id={chat_id}")
+                    except Exception as e:
+                        logger.error(f"[PicConfigCommand] 定时自拍回调失败: {e}")
+
+                # 启动定时任务
+                success = await auto_selfie_manager.start_auto_selfie(
+                    chat_id=chat_id,
+                    interval_minutes=interval_minutes,
+                    selfie_style=selfie_style,
+                    model_id=model_id,
+                    custom_ask_message=custom_ask_message,
+                    action_callback=selfie_callback
+                )
+
+                if success:
+                    # 设置运行时状态
+                    runtime_state.set_auto_selfie_enabled(chat_id, True)
+                    await self.send_text(f"✅ 定时自拍已启动！每{interval_minutes}分钟发送一次自拍")
+                    return True, "定时自拍已启动", True
+                else:
+                    await self.send_text("启动定时自拍失败")
+                    return False, "启动失败", True
+
+            elif action == "off":
+                # 停止定时自拍
+                success = await auto_selfie_manager.stop_auto_selfie(chat_id)
+                if success:
+                    # 重置运行时状态
+                    runtime_state.set_auto_selfie_enabled(chat_id, False)
+                    await self.send_text("✅ 定时自拍已停止")
+                    return True, "定时自拍已停止", True
+                else:
+                    await self.send_text("定时自拍未运行")
+                    return False, "定时自拍未运行", True
+
+            elif action == "status":
+                # 查看定时自拍状态
+                task_info = auto_selfie_manager.get_task_info(chat_id)
+                if task_info:
+                    message_lines = [
+                        f"📸 定时自拍状态：运行中\n",
+                        f"⏱️ 间隔：{task_info['interval_minutes']}分钟\n",
+                        f"🎨 风格：{task_info['selfie_style']}\n",
+                        f"🤖 模型：{task_info['model_id']}\n",
+                    ]
+                    if task_info['custom_ask_message']:
+                        message_lines.append(f"💬 询问语：{task_info['custom_ask_message']}\n")
+                    await self.send_text("".join(message_lines))
+                    return True, "定时自拍状态查询成功", True
+                else:
+                    await self.send_text("定时自拍未运行")
+                    return False, "定时自拍未运行", True
+
+            elif action == "config":
+                # 查看定时自拍配置
+                message_lines = [
+                    f"⚙️ 定时自拍配置：\n",
+                    f"🔌 全局开关：{'✅ 启用' if global_enabled else '❌ 禁用'}\n",
+                    f"⏱️ 默认间隔：{self.get_config('auto_selfie.interval_minutes', 30)}分钟\n",
+                    f"🎨 默认风格：{self.get_config('auto_selfie.selfie_style', 'standard')}\n",
+                    f"🤖 默认模型：{self.get_config('auto_selfie.model_id', 'model1')}\n",
+                    f"💬 询问语：{self.get_config('auto_selfie.ask_message', '这张照片怎么样？')}\n",
+                ]
+                await self.send_text("".join(message_lines))
+                return True, "定时自拍配置查询成功", True
+
+            else:
+                await self.send_text(
+                    "无效的操作。可用命令：\n"
+                    "/dr auto_selfie on [间隔分钟] - 启动定时自拍\n"
+                    "/dr auto_selfie off - 停止定时自拍\n"
+                    "/dr auto_selfie status - 查看定时自拍状态\n"
+                    "/dr auto_selfie config - 查看定时自拍配置"
+                )
+                return False, "无效的操作", True
+
+        except Exception as e:
+            logger.error(f"{self.log_prefix} 处理定时自拍命令失败: {e!r}")
+            await self.send_text(f"操作失败：{str(e)[:100]}")
+            return False, f"处理定时自拍命令失败: {str(e)}", True
 
 
 class PicStyleCommand(BaseCommand):

@@ -14,6 +14,7 @@ from src.plugin_system.base.config_types import (
 from .core.pic_action import Custom_Pic_Action
 from .core.pic_command import PicGenerationCommand, PicConfigCommand, PicStyleCommand
 from .core.config_manager import EnhancedConfigManager
+from .core.auto_selfie_manager import auto_selfie_manager
 
 
 @register_plugin
@@ -22,11 +23,16 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name = "custom_pic_plugin"
-    plugin_version = "3.3.4"
-    plugin_author = "Ptrel，Rabbit"
+    plugin_version = "3.3.5"
+    plugin_author = "Ptrel，Rabbit，NGU-SprinG"
     enable_plugin = True
     dependencies: List[str] = []
-    python_dependencies: List[str] = []
+    python_dependencies: List[str] = [
+        "aiohttp>=3.8.0",
+        "beautifulsoup4>=4.11.0",
+        "lxml>=4.9.0",
+        "ddgs"
+    ]
     config_file_name = "config.toml"
 
     # 配置节元数据
@@ -61,10 +67,16 @@ class CustomPicPlugin(BasePlugin):
             icon="camera",
             order=6
         ),
+        "auto_selfie": ConfigSection(
+            title="定时自拍配置",
+            description="定时自动发送自拍，让MaiBot更像真人。发完自拍后会自动询问用户照片怎么样",
+            icon="clock",
+            order=7
+        ),
         "auto_recall": ConfigSection(
             title="自动撤回配置",
             icon="trash",
-            order=7
+            order=8
         ),
         "prompt_optimizer": ConfigSection(
             title="提示词优化器",
@@ -128,7 +140,7 @@ class CustomPicPlugin(BasePlugin):
             ConfigTab(
                 id="features",
                 title="功能配置",
-                sections=["selfie", "auto_recall", "prompt_optimizer", "search_reference"],
+                sections=["selfie", "auto_selfie", "auto_recall", "prompt_optimizer", "search_reference"],
                 icon="zap"
             ),
             ConfigTab(
@@ -378,6 +390,51 @@ class CustomPicPlugin(BasePlugin):
                 depends_on="selfie.enabled",
                 depends_value=True,
                 order=4
+            )
+        },
+        "auto_selfie": {
+            "enabled": ConfigField(
+                type=bool,
+                default=False,
+                description="是否启用定时自拍功能。开启后MaiBot会定时自动发送自拍，让Bot更像真人",
+                order=1
+            ),
+            "interval_minutes": ConfigField(
+                type=int,
+                default=30,
+                description="定时自拍间隔时间（分钟）。建议10-120分钟，太频繁可能会打扰用户",
+                min=5,
+                max=300,
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=2
+            ),
+            "ask_message": ConfigField(
+                type=str,
+                default="这张照片怎么样？",
+                description="发完自拍后自动发送的询问语。留空则随机选择预设模板",
+                placeholder="这张照片怎么样？",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=3
+            ),
+            "selfie_style": ConfigField(
+                type=str,
+                default="standard",
+                description="定时自拍使用的风格。standard=标准自拍（前置摄像头），mirror=对镜自拍",
+                choices=["standard", "mirror"],
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=4
+            ),
+            "model_id": ConfigField(
+                type=str,
+                default="model1",
+                description="定时自拍使用的模型ID",
+                placeholder="model1",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=5
             )
         },
         "auto_recall": {

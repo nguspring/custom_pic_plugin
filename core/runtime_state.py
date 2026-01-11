@@ -26,6 +26,8 @@ class ChatStreamState:
     action_default_model: Optional[str] = None
     # Command组件默认模型（None表示使用全局配置）
     command_default_model: Optional[str] = None
+    # 定时自拍是否启用（None表示使用全局配置）
+    auto_selfie_enabled: Optional[bool] = None
 
 
 class RuntimeStateManager:
@@ -172,6 +174,35 @@ class RuntimeStateManager:
         state.command_default_model = None
         logger.info(f"[RuntimeState] 聊天流 {chat_id} Command默认模型已重置为全局配置")
 
+    # ==================== 定时自拍开关 ====================
+
+    def is_auto_selfie_enabled(self, chat_id: str, global_enabled: bool) -> bool:
+        """检查定时自拍是否启用
+
+        Args:
+            chat_id: 聊天流ID
+            global_enabled: 全局配置的启用状态
+
+        Returns:
+            定时自拍是否启用（优先使用聊天流状态，否则使用全局配置）
+        """
+        state = self._get_state(chat_id)
+        if state.auto_selfie_enabled is not None:
+            return state.auto_selfie_enabled
+        return global_enabled
+
+    def set_auto_selfie_enabled(self, chat_id: str, enabled: bool) -> None:
+        """设置定时自拍启用状态"""
+        state = self._get_state(chat_id)
+        state.auto_selfie_enabled = enabled
+        logger.info(f"[RuntimeState] 聊天流 {chat_id} 定时自拍状态设置为: {enabled}")
+
+    def reset_auto_selfie_enabled(self, chat_id: str) -> None:
+        """重置定时自拍启用状态为全局配置"""
+        state = self._get_state(chat_id)
+        state.auto_selfie_enabled = None
+        logger.info(f"[RuntimeState] 聊天流 {chat_id} 定时自拍状态已重置为全局配置")
+
     # ==================== 状态重置 ====================
 
     def reset_chat_state(self, chat_id: str) -> None:
@@ -189,6 +220,7 @@ class RuntimeStateManager:
             "recall_disabled_models": list(state.recall_disabled_models),
             "action_default_model": state.action_default_model,
             "command_default_model": state.command_default_model,
+            "auto_selfie_enabled": state.auto_selfie_enabled,
         }
 
 

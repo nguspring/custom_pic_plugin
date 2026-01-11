@@ -15,6 +15,7 @@ from .size_utils import validate_image_size, get_image_size
 from .runtime_state import runtime_state
 from .prompt_optimizer import optimize_prompt
 from .image_search_adapter import ImageSearchAdapter
+from .auto_selfie_manager import auto_selfie_manager
 
 logger = get_logger("pic_action")
 
@@ -85,18 +86,19 @@ class Custom_Pic_Action(BaseAction):
     action_parameters = {
         "description": "从用户消息中提取的图片描述文本（例如：用户说'画一只小猫'，则填写'一只小猫'）。必填参数。",
         "model_id": """要使用的模型ID（如model1、model2、model3等）。
-        重要：需要从用户消息中提取模型ID！  
+        重要：需要从用户消息中提取模型ID！
         支持的自然语言表达方式：
         - '用model3画一只猫' → 提取 'model3'
         - 'model2生成图片' → 提取 'model2'
         - '使用模型1发张自拍' → 提取 'model1'
-        - '用模型1'、'模型2画'、'模型3生成'等   
+        - '用模型1'、'模型2画'、'模型3生成'等
         如果用户没有指定模型，则留空或填null（将使用默认模型）""",
         "strength": "图生图强度，0.1-1.0之间，值越高变化越大（仅图生图时使用，可选，默认0.7）",
         "size": "图片尺寸，如512x512、1024x1024等（可选，不指定则使用模型默认尺寸）",
         "selfie_mode": "是否启用自拍模式（true/false，可选，默认false）。启用后会自动添加自拍场景和手部动作",
         "selfie_style": "自拍风格，可选值：standard（标准自拍，适用于户外或无镜子场景），mirror（对镜自拍，适用于有镜子的室内场景）。仅在selfie_mode=true时生效，可选，默认standard",
-        "free_hand_action": "自由手部动作描述（英文）。如果指定此参数，将使用此动作而不是随机生成。仅在selfie_mode=true时生效，可选"
+        "free_hand_action": "自由手部动作描述（英文）。如果指定此参数，将使用此动作而不是随机生成。仅在selfie_mode=true时生效，可选",
+        "ask_message": "发完自拍后自动发送的询问语（可选）。仅在selfie_mode=true时生效，留空则不发送询问语"
     }
 
     # 动作使用场景
@@ -149,6 +151,57 @@ class Custom_Pic_Action(BaseAction):
             # 修正：return 需要缩进在 if 内部
             return False, "插件已禁用"
 
+        # 检查是否有待处理的自拍请求（定时自拍功能）
+        if auto_selfie_manager.has_pending_selfie_request(self.chat_id):
+            pending_request = auto_selfie_manager.get_and_clear_pending_selfie_request(self.chat_id)
+            if pending_request:
+                logger.info(f"{self.log_prefix} 检测到待处理的自拍请求，执行定时自拍")
+                # 使用待处理请求的参数执行自拍
+                selfie_mode = True
+                selfie_style = pending_request.selfie_style
+                model_id = pending_request.model_id
+                ask_message = pending_request.ask_message
+                description = "自拍"  # 定时自拍使用默认描述
+                strength = 0.6
+                size = ""
+                free_hand_action = ""
+
+                # 检查自拍功能是否启用
+                selfie_enabled = self.get_config("selfie.enabled", True)
+                if not selfie_enabled:
+                    logger.warning(f"{self.log_prefix} 自拍功能未启用，跳过定时自拍")
+                    return False, "自拍功能未启用"
+
+                # 检查模型是否在当前聊天流启用
+                if not runtime_state.is_model_enabled(self.chat_id, model_id):
+                    logger.warning(f"{self.log_prefix} 模型 {model_id} 在当前聊天流已禁用")
+                    return False, f"模型 {model_id} 已禁用"
+
+                # 处理自拍提示词
+                description = self._process_selfie_prompt(description, selfie_style, free_hand_action, model_id)
+                logger.info(f"{self.log_prefix} 定时自拍模式处理后的提示词: {description}")
+
+                # 获取自拍专用负面提示词
+                selfie_negative_prompt = self.get_config("selfie.negative_prompt", "").strip()
+
+                # 检查是否配置了参考图片
+                reference_image = self._get_selfie_reference_image()
+                if reference_image:
+                    # 检查模型是否支持图生图
+                    model_config = self._get_model_config(model_id)
+                    if model_config and model_config.get("support_img2img", True):
+                        logger.info(f"{self.log_prefix} 定时自拍使用自拍参考图片进行图生图")
+                        return await self._execute_unified_generation(
+                            description, model_id, size, strength or 0.6, reference_image, selfie_negative_prompt, ask_message
+                        )
+                    else:
+                        logger.warning(f"{self.log_prefix} 模型 {model_id} 不支持图生图，定时自拍回退为文生图模式")
+
+                # 无参考图或模型不支持，使用文生图
+                return await self._execute_unified_generation(
+                    description, model_id, size, None, None, selfie_negative_prompt, ask_message
+                )
+
         # 获取参数
         description = (self.action_data.get("description") or "").strip()
         model_id = (self.action_data.get("model_id") or "").strip()
@@ -157,6 +210,7 @@ class Custom_Pic_Action(BaseAction):
         selfie_mode = self.action_data.get("selfie_mode", False)
         selfie_style = (self.action_data.get("selfie_style") or "standard").strip().lower()
         free_hand_action = (self.action_data.get("free_hand_action") or "").strip()
+        ask_message = (self.action_data.get("ask_message") or "").strip()
 
 
         # 如果没有指定模型，使用运行时状态的默认模型
@@ -307,9 +361,19 @@ class Custom_Pic_Action(BaseAction):
             logger.info(f"{self.log_prefix} 未检测到输入图片，使用文生图模式")
             return await self._execute_unified_generation(description, model_id, size, None, None, selfie_negative_prompt) #修改：增加selfie_negative_prompt
 
-    # 👇 新增参数 extra_negative_prompt: str = None
-    async def _execute_unified_generation(self, description: str, model_id: str, size: str, strength: float = None, input_image_base64: str = None, extra_negative_prompt: str = None  ) -> Tuple[bool, Optional[str]]:
-        """统一的图片生成执行方法"""
+    # 👇 新增参数 extra_negative_prompt: str = None, ask_message: str = None
+    async def _execute_unified_generation(self, description: str, model_id: str, size: str, strength: float = None, input_image_base64: str = None, extra_negative_prompt: str = None, ask_message: str = None) -> Tuple[bool, Optional[str]]:
+        """统一的图片生成执行方法
+        
+        Args:
+            description: 图片描述
+            model_id: 模型ID
+            size: 图片尺寸
+            strength: 图生图强度
+            input_image_base64: 输入图片base64
+            extra_negative_prompt: 额外的负面提示词
+            ask_message: 发完自拍后的询问语
+        """
 
         # 获取模型配置
         model_config = self._get_model_config(model_id)
@@ -419,6 +483,9 @@ class Custom_Pic_Action(BaseAction):
                         self.cache_manager.cache_result(description, model_name, image_size, strength, is_img2img, final_image_data)
                         # 安排自动撤回（如果该模型启用）
                         await self._schedule_auto_recall_for_recent_message(model_config)
+                        # 发送询问语（如果指定了）
+                        if ask_message:
+                            await self.send_text(ask_message)
                         return True, f"{mode_text}已成功生成并发送"
                     else:
                         await self.send_text("图片已处理完成，但发送失败了")
@@ -438,6 +505,9 @@ class Custom_Pic_Action(BaseAction):
                                 self.cache_manager.cache_result(description, model_name, image_size, strength, is_img2img, encode_result)
                                 # 安排自动撤回（如果该模型启用）
                                 await self._schedule_auto_recall_for_recent_message(model_config)
+                                # 发送询问语（如果指定了）
+                                if ask_message:
+                                    await self.send_text(ask_message)
                                 return True, f"{mode_text}已完成"
                         else:
                             await self.send_text(f"获取到图片URL，但在处理图片时失败了：{encode_result}")
