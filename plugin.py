@@ -23,8 +23,8 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name = "custom_pic_plugin"
-    plugin_version = "3.3.5"
-    plugin_author = "Ptrel，Rabbit，NGU-SprinG"
+    plugin_version = "3.3.6"
+    plugin_author = "Ptrel，Rabbit-Jia-Er，saberlights Kiuon，1021143806，nguspring"
     enable_plugin = True
     dependencies: List[str] = []
     python_dependencies: List[str] = [
@@ -115,9 +115,40 @@ class CustomPicPlugin(BasePlugin):
             order=13
         ),
         "models.model1": ConfigSection(
-            title="模型1配置",
+            title="模型1配置 - 通义MAI极速版",
+            description="通义MAI极速版，快速生成高质量图片，适合日常使用",
             icon="box",
             order=14
+        ),
+        "models.model2": ConfigSection(
+            title="模型2配置 - WAI插画SDXL",
+            description="WAI插画SDXL v1.6，优秀的二次元插画风格模型",
+            icon="box",
+            order=15
+        ),
+        "models.model3": ConfigSection(
+            title="模型3配置 - ChenkinNoob XL",
+            description="ChenkinNoob XL V0.2，高质量写实风格模型，推荐832x1216尺寸",
+            icon="box",
+            order=16
+        ),
+        "models.model4": ConfigSection(
+            title="模型4配置 - Qwen动漫2512",
+            description="Qwen Image 2512 Anime，优秀的动漫风格模型，推荐832x1216尺寸",
+            icon="box",
+            order=17
+        ),
+        "models.model5": ConfigSection(
+            title="模型5配置 - 潦草模型",
+            description="cancel13/liaocao，北欧绘本风格，简约扁平设计，推荐832x1216尺寸",
+            icon="box",
+            order=18
+        ),
+        "models.model6": ConfigSection(
+            title="模型6配置 - Qwen融合LoRA",
+            description="Qwen Image 2512 FusionLoRA，融合多种风格的优秀模型，推荐832x1216尺寸",
+            icon="box",
+            order=19
         ),
     }
 
@@ -152,7 +183,7 @@ class CustomPicPlugin(BasePlugin):
             ConfigTab(
                 id="models",
                 title="模型管理",
-                sections=["models", "models.model1"],
+                sections=["models", "models.model1", "models.model2", "models.model3", "models.model4", "models.model5", "models.model6"],
                 icon="cpu"
             ),
             ConfigTab(
@@ -178,7 +209,7 @@ class CustomPicPlugin(BasePlugin):
             ),
             "config_version": ConfigField(
                 type=str,
-                default="3.3.3",
+                default="3.3.6",
                 description="插件配置版本号",
                 disabled=True,
                 order=2
@@ -330,11 +361,19 @@ class CustomPicPlugin(BasePlugin):
             ),
             "cartoon": ConfigField(
                 type=str,
-                default="cartoon style, anime style, colorful, vibrant colors, clean lines",
+                default="2D anime character illustration, clean line art, game character art style, anime cel shading, character design, front view portrait, anime face, stylized proportions, colorful, vibrant colors, clean lines",
                 description="卡通风格提示词",
                 input_type="textarea",
                 rows=3,
                 order=1
+            ),
+            "reality": ConfigField(
+                type=str,
+                default="photorealistic, professional photography, realistic details, soft natural light, cinematic lighting, proper leg anatomy, realistic proportions, intricate fabric textures",
+                description="写实风格提示词",
+                input_type="textarea",
+                rows=3,
+                order=2
             )
         },
         "style_aliases": {
@@ -347,10 +386,17 @@ class CustomPicPlugin(BasePlugin):
             ),
             "cartoon": ConfigField(
                 type=str,
-                default="卡通",
+                default="卡通, 二次元, 动漫",
                 description="cartoon 风格的中文别名，支持多别名用逗号分隔",
                 placeholder="卡通,动漫",
                 order=1
+            ),
+            "reality": ConfigField(
+                type=str,
+                default="现实, 真实",
+                description="reality 风格的中文别名，支持多别名用逗号分隔",
+                placeholder="现实,真实",
+                order=2
             )
         },
         "selfie": {
@@ -509,11 +555,11 @@ class CustomPicPlugin(BasePlugin):
                 order=1
             )
         },
-        # 基础模型配置模板
+        # 模型1配置 - 通义MAI极速版
         "models.model1": {
             "name": ConfigField(
                 type=str,
-                default="魔搭潦草模型",
+                default="Tongyi-MAI/Z-Image-Turbo",
                 description="模型显示名称，在模型列表中展示，版本更新后请手动从 old 目录恢复配置",
                 order=1
             ),
@@ -536,14 +582,14 @@ class CustomPicPlugin(BasePlugin):
             ),
             "format": ConfigField(
                 type=str,
-                default="openai",
+                default="modelscope",
                 description="API格式。openai=通用格式，doubao=豆包，gemini=Gemini，modelscope=魔搭，shatangyun=砂糖云(NovelAI)，mengyuai=梦羽AI，zai=Zai(Gemini转发)",
                 choices=["openai", "gemini", "doubao", "modelscope", "shatangyun", "mengyuai", "zai"],
                 order=4
             ),
             "model": ConfigField(
                 type=str,
-                default="cancel13/liaocao",
+                default="Tongyi-MAI/Z-Image-Turbo",
                 description="模型名称。梦羽AI格式填写模型索引数字（如0、1、2）",
                 placeholder="model-name 或 0",
                 order=5
@@ -563,7 +609,7 @@ class CustomPicPlugin(BasePlugin):
             ),
             "seed": ConfigField(
                 type=int,
-                default=42,
+                default=-1,
                 description="随机种子，固定值可确保结果可复现",
                 min=-1,
                 max=2147483647,
@@ -580,7 +626,7 @@ class CustomPicPlugin(BasePlugin):
             ),
             "num_inference_steps": ConfigField(
                 type=int,
-                default=20,
+                default=30,
                 description="推理步数，影响质量和速度。推荐20-50",
                 min=1,
                 max=150,
@@ -588,13 +634,13 @@ class CustomPicPlugin(BasePlugin):
             ),
             "watermark": ConfigField(
                 type=bool,
-                default=True,
+                default=False,
                 description="是否添加水印，豆包默认支持",
                 order=11
             ),
             "custom_prompt_add": ConfigField(
                 type=str,
-                default=", Nordic picture book art style, minimalist flat design, liaocao",
+                default="",
                 description="正面提示词增强，自动添加到用户描述后",
                 input_type="textarea",
                 rows=2,
@@ -602,7 +648,607 @@ class CustomPicPlugin(BasePlugin):
             ),
             "negative_prompt_add": ConfigField(
                 type=str,
-                default="Pornography,nudity,lowres, bad anatomy, bad hands, text, error",
+                default="low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs",
+                description="负面提示词，避免不良内容。豆包可留空但需保留引号",
+                input_type="textarea",
+                rows=2,
+                order=13
+            ),
+            "artist": ConfigField(
+                type=str,
+                default="",
+                description="艺术家风格标签（砂糖云专用）。留空则不添加",
+                order=14
+            ),
+            "support_img2img": ConfigField(
+                type=bool,
+                default=True,
+                description="该模型是否支持图生图功能，请根据API文档自行判断。设为false时会自动降级为文生图",
+                order=15
+            ),
+            "auto_recall_delay": ConfigField(
+                type=int,
+                default=0,
+                description="自动撤回延时（秒）。大于0时启用撤回，0表示不撤回。需先在「自动撤回配置」中开启总开关",
+                min=0,
+                max=120,
+                order=16
+            ),
+        },
+        # 模型2配置 - WAI插画SDXL
+        "models.model2": {
+            "name": ConfigField(
+                type=str,
+                default="QWQ114514123/WAI-illustrious-SDXL-v16",
+                description="模型显示名称，在模型列表中展示，版本更新后请手动从 old 目录恢复配置",
+                order=1
+            ),
+            "base_url": ConfigField(
+                type=str,
+                default="https://api-inference.modelscope.cn/v1",
+                description="API服务地址。示例: OpenAI=https://api.openai.com/v1, 硅基流动=https://api.siliconflow.cn/v1, 豆包=https://ark.cn-beijing.volces.com/api/v3, 魔搭=https://api-inference.modelscope.cn/v1, Gemini=https://generativelanguage.googleapis.com",
+                required=True,
+                placeholder="https://api.example.com/v1",
+                order=2
+            ),
+            "api_key": ConfigField(
+                type=str,
+                default="Bearer xxxxxxxxxxxxxxxxxxxxxx",
+                description="API密钥。OpenAI/modelscope格式需'Bearer '前缀，豆包/Gemini格式无需前缀",
+                input_type="password",
+                required=True,
+                placeholder="Bearer sk-xxx 或 sk-xxx",
+                order=3
+            ),
+            "format": ConfigField(
+                type=str,
+                default="modelscope",
+                description="API格式。openai=通用格式，doubao=豆包，gemini=Gemini，modelscope=魔搭，shatangyun=砂糖云(NovelAI)，mengyuai=梦羽AI，zai=Zai(Gemini转发)",
+                choices=["openai", "gemini", "doubao", "modelscope", "shatangyun", "mengyuai", "zai"],
+                order=4
+            ),
+            "model": ConfigField(
+                type=str,
+                default="QWQ114514123/WAI-illustrious-SDXL-v16",
+                description="模型名称。梦羽AI格式填写模型索引数字（如0、1、2）",
+                placeholder="model-name 或 0",
+                order=5
+            ),
+            "fixed_size_enabled": ConfigField(
+                type=bool,
+                default=False,
+                description="是否固定图片尺寸。开启后强制使用default_size，关闭则麦麦选择",
+                order=6
+            ),
+            "default_size": ConfigField(
+                type=str,
+                default="1024x1024",
+                description="默认图片尺寸。OpenAI/豆包/魔搭格式填写如 1024x1024。Gemini格式填写宽高比如 16:9 或 16:9-2K，具体参考官方文档",
+                placeholder="1024x1024 或 16:9-2K",
+                order=7
+            ),
+            "seed": ConfigField(
+                type=int,
+                default=-1,
+                description="随机种子，固定值可确保结果可复现",
+                min=-1,
+                max=2147483647,
+                order=8
+            ),
+            "guidance_scale": ConfigField(
+                type=float,
+                default=2.5,
+                description="指导强度。豆包推荐5.5，其他推荐2.5。越高越严格遵循提示词",
+                min=0.0,
+                max=20.0,
+                step=0.5,
+                order=9
+            ),
+            "num_inference_steps": ConfigField(
+                type=int,
+                default=30,
+                description="推理步数，影响质量和速度。推荐20-50",
+                min=1,
+                max=150,
+                order=10
+            ),
+            "watermark": ConfigField(
+                type=bool,
+                default=False,
+                description="是否添加水印，豆包默认支持",
+                order=11
+            ),
+            "custom_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="正面提示词增强，自动添加到用户描述后",
+                input_type="textarea",
+                rows=2,
+                order=12
+            ),
+            "negative_prompt_add": ConfigField(
+                type=str,
+                default="low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs",
+                description="负面提示词，避免不良内容。豆包可留空但需保留引号",
+                input_type="textarea",
+                rows=2,
+                order=13
+            ),
+            "artist": ConfigField(
+                type=str,
+                default="",
+                description="艺术家风格标签（砂糖云专用）。留空则不添加",
+                order=14
+            ),
+            "support_img2img": ConfigField(
+                type=bool,
+                default=True,
+                description="该模型是否支持图生图功能，请根据API文档自行判断。设为false时会自动降级为文生图",
+                order=15
+            ),
+            "auto_recall_delay": ConfigField(
+                type=int,
+                default=0,
+                description="自动撤回延时（秒）。大于0时启用撤回，0表示不撤回。需先在「自动撤回配置」中开启总开关",
+                min=0,
+                max=120,
+                order=16
+            ),
+        },
+        # 模型3配置 - ChenkinNoob XL
+        "models.model3": {
+            "name": ConfigField(
+                type=str,
+                default="ChenkinNoob/ChenkinNoob-XL-V0.2",
+                description="模型显示名称，在模型列表中展示，版本更新后请手动从 old 目录恢复配置",
+                order=1
+            ),
+            "base_url": ConfigField(
+                type=str,
+                default="https://api-inference.modelscope.cn/v1",
+                description="API服务地址。示例: OpenAI=https://api.openai.com/v1, 硅基流动=https://api.siliconflow.cn/v1, 豆包=https://ark.cn-beijing.volces.com/api/v3, 魔搭=https://api-inference.modelscope.cn/v1, Gemini=https://generativelanguage.googleapis.com",
+                required=True,
+                placeholder="https://api.example.com/v1",
+                order=2
+            ),
+            "api_key": ConfigField(
+                type=str,
+                default="Bearer xxxxxxxxxxxxxxxxxxxxxx",
+                description="API密钥。OpenAI/modelscope格式需'Bearer '前缀，豆包/Gemini格式无需前缀",
+                input_type="password",
+                required=True,
+                placeholder="Bearer sk-xxx 或 sk-xxx",
+                order=3
+            ),
+            "format": ConfigField(
+                type=str,
+                default="modelscope",
+                description="API格式。openai=通用格式，doubao=豆包，gemini=Gemini，modelscope=魔搭，shatangyun=砂糖云(NovelAI)，mengyuai=梦羽AI，zai=Zai(Gemini转发)",
+                choices=["openai", "gemini", "doubao", "modelscope", "shatangyun", "mengyuai", "zai"],
+                order=4
+            ),
+            "model": ConfigField(
+                type=str,
+                default="ChenkinNoob/ChenkinNoob-XL-V0.2",
+                description="模型名称。梦羽AI格式填写模型索引数字（如0、1、2）",
+                placeholder="model-name 或 0",
+                order=5
+            ),
+            "fixed_size_enabled": ConfigField(
+                type=bool,
+                default=False,
+                description="是否固定图片尺寸。开启后强制使用default_size，关闭则麦麦选择",
+                order=6
+            ),
+            "default_size": ConfigField(
+                type=str,
+                default="832x1216",
+                description="默认图片尺寸。OpenAI/豆包/魔搭格式填写如 1024x1024。Gemini格式填写宽高比如 16:9 或 16:9-2K，具体参考官方文档",
+                placeholder="1024x1024 或 16:9-2K",
+                order=7
+            ),
+            "seed": ConfigField(
+                type=int,
+                default=-1,
+                description="随机种子，固定值可确保结果可复现",
+                min=-1,
+                max=2147483647,
+                order=8
+            ),
+            "guidance_scale": ConfigField(
+                type=float,
+                default=2.5,
+                description="指导强度。豆包推荐5.5，其他推荐2.5。越高越严格遵循提示词",
+                min=0.0,
+                max=20.0,
+                step=0.5,
+                order=9
+            ),
+            "num_inference_steps": ConfigField(
+                type=int,
+                default=30,
+                description="推理步数，影响质量和速度。推荐20-50",
+                min=1,
+                max=150,
+                order=10
+            ),
+            "watermark": ConfigField(
+                type=bool,
+                default=False,
+                description="是否添加水印，豆包默认支持",
+                order=11
+            ),
+            "custom_prompt_add": ConfigField(
+                type=str,
+                default="esthetic, excellent, medium resolution, newest",
+                description="正面提示词增强，自动添加到用户描述后",
+                input_type="textarea",
+                rows=2,
+                order=12
+            ),
+            "negative_prompt_add": ConfigField(
+                type=str,
+                default="low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs",
+                description="负面提示词，避免不良内容。豆包可留空但需保留引号",
+                input_type="textarea",
+                rows=2,
+                order=13
+            ),
+            "artist": ConfigField(
+                type=str,
+                default="",
+                description="艺术家风格标签（砂糖云专用）。留空则不添加",
+                order=14
+            ),
+            "support_img2img": ConfigField(
+                type=bool,
+                default=True,
+                description="该模型是否支持图生图功能，请根据API文档自行判断。设为false时会自动降级为文生图",
+                order=15
+            ),
+            "auto_recall_delay": ConfigField(
+                type=int,
+                default=0,
+                description="自动撤回延时（秒）。大于0时启用撤回，0表示不撤回。需先在「自动撤回配置」中开启总开关",
+                min=0,
+                max=120,
+                order=16
+            ),
+        },
+        # 模型4配置 - Qwen动漫2512
+        "models.model4": {
+            "name": ConfigField(
+                type=str,
+                default="Sawata/Qwen-image-2512-Anime",
+                description="模型显示名称，在模型列表中展示，版本更新后请手动从 old 目录恢复配置",
+                order=1
+            ),
+            "base_url": ConfigField(
+                type=str,
+                default="https://api-inference.modelscope.cn/v1",
+                description="API服务地址。示例: OpenAI=https://api.openai.com/v1, 硅基流动=https://api.siliconflow.cn/v1, 豆包=https://ark.cn-beijing.volces.com/api/v3, 魔搭=https://api-inference.modelscope.cn/v1, Gemini=https://generativelanguage.googleapis.com",
+                required=True,
+                placeholder="https://api.example.com/v1",
+                order=2
+            ),
+            "api_key": ConfigField(
+                type=str,
+                default="Bearer xxxxxxxxxxxxxxxxxxxxxx",
+                description="API密钥。OpenAI/modelscope格式需'Bearer '前缀，豆包/Gemini格式无需前缀",
+                input_type="password",
+                required=True,
+                placeholder="Bearer sk-xxx 或 sk-xxx",
+                order=3
+            ),
+            "format": ConfigField(
+                type=str,
+                default="modelscope",
+                description="API格式。openai=通用格式，doubao=豆包，gemini=Gemini，modelscope=魔搭，shatangyun=砂糖云(NovelAI)，mengyuai=梦羽AI，zai=Zai(Gemini转发)",
+                choices=["openai", "gemini", "doubao", "modelscope", "shatangyun", "mengyuai", "zai"],
+                order=4
+            ),
+            "model": ConfigField(
+                type=str,
+                default="Sawata/Qwen-image-2512-Anime",
+                description="模型名称。梦羽AI格式填写模型索引数字（如0、1、2）",
+                placeholder="model-name 或 0",
+                order=5
+            ),
+            "fixed_size_enabled": ConfigField(
+                type=bool,
+                default=False,
+                description="是否固定图片尺寸。开启后强制使用default_size，关闭则麦麦选择",
+                order=6
+            ),
+            "default_size": ConfigField(
+                type=str,
+                default="832x1216",
+                description="默认图片尺寸。OpenAI/豆包/魔搭格式填写如 1024x1024。Gemini格式填写宽高比如 16:9 或 16:9-2K，具体参考官方文档",
+                placeholder="1024x1024 或 16:9-2K",
+                order=7
+            ),
+            "seed": ConfigField(
+                type=int,
+                default=-1,
+                description="随机种子，固定值可确保结果可复现",
+                min=-1,
+                max=2147483647,
+                order=8
+            ),
+            "guidance_scale": ConfigField(
+                type=float,
+                default=2.5,
+                description="指导强度。豆包推荐5.5，其他推荐2.5。越高越严格遵循提示词",
+                min=0.0,
+                max=20.0,
+                step=0.5,
+                order=9
+            ),
+            "num_inference_steps": ConfigField(
+                type=int,
+                default=30,
+                description="推理步数，影响质量和速度。推荐20-50",
+                min=1,
+                max=150,
+                order=10
+            ),
+            "watermark": ConfigField(
+                type=bool,
+                default=False,
+                description="是否添加水印，豆包默认支持",
+                order=11
+            ),
+            "custom_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="正面提示词增强，自动添加到用户描述后",
+                input_type="textarea",
+                rows=2,
+                order=12
+            ),
+            "negative_prompt_add": ConfigField(
+                type=str,
+                default="low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs",
+                description="负面提示词，避免不良内容。豆包可留空但需保留引号",
+                input_type="textarea",
+                rows=2,
+                order=13
+            ),
+            "artist": ConfigField(
+                type=str,
+                default="",
+                description="艺术家风格标签（砂糖云专用）。留空则不添加",
+                order=14
+            ),
+            "support_img2img": ConfigField(
+                type=bool,
+                default=True,
+                description="该模型是否支持图生图功能，请根据API文档自行判断。设为false时会自动降级为文生图",
+                order=15
+            ),
+            "auto_recall_delay": ConfigField(
+                type=int,
+                default=0,
+                description="自动撤回延时（秒）。大于0时启用撤回，0表示不撤回。需先在「自动撤回配置」中开启总开关",
+                min=0,
+                max=120,
+                order=16
+            ),
+        },
+        # 模型5配置 - 潦草模型
+        "models.model5": {
+            "name": ConfigField(
+                type=str,
+                default="cancel13/liaocao",
+                description="模型显示名称，在模型列表中展示，版本更新后请手动从 old 目录恢复配置",
+                order=1
+            ),
+            "base_url": ConfigField(
+                type=str,
+                default="https://api-inference.modelscope.cn/v1",
+                description="API服务地址。示例: OpenAI=https://api.openai.com/v1, 硅基流动=https://api.siliconflow.cn/v1, 豆包=https://ark.cn-beijing.volces.com/api/v3, 魔搭=https://api-inference.modelscope.cn/v1, Gemini=https://generativelanguage.googleapis.com",
+                required=True,
+                placeholder="https://api.example.com/v1",
+                order=2
+            ),
+            "api_key": ConfigField(
+                type=str,
+                default="Bearer xxxxxxxxxxxxxxxxxxxxxx",
+                description="API密钥。OpenAI/modelscope格式需'Bearer '前缀，豆包/Gemini格式无需前缀",
+                input_type="password",
+                required=True,
+                placeholder="Bearer sk-xxx 或 sk-xxx",
+                order=3
+            ),
+            "format": ConfigField(
+                type=str,
+                default="modelscope",
+                description="API格式。openai=通用格式，doubao=豆包，gemini=Gemini，modelscope=魔搭，shatangyun=砂糖云(NovelAI)，mengyuai=梦羽AI，zai=Zai(Gemini转发)",
+                choices=["openai", "gemini", "doubao", "modelscope", "shatangyun", "mengyuai", "zai"],
+                order=4
+            ),
+            "model": ConfigField(
+                type=str,
+                default="cancel13/liaocao",
+                description="模型名称。梦羽AI格式填写模型索引数字（如0、1、2）",
+                placeholder="model-name 或 0",
+                order=5
+            ),
+            "fixed_size_enabled": ConfigField(
+                type=bool,
+                default=False,
+                description="是否固定图片尺寸。开启后强制使用default_size，关闭则麦麦选择",
+                order=6
+            ),
+            "default_size": ConfigField(
+                type=str,
+                default="832x1216",
+                description="默认图片尺寸。OpenAI/豆包/魔搭格式填写如 1024x1024。Gemini格式填写宽高比如 16:9 或 16:9-2K，具体参考官方文档",
+                placeholder="1024x1024 或 16:9-2K",
+                order=7
+            ),
+            "seed": ConfigField(
+                type=int,
+                default=-1,
+                description="随机种子，固定值可确保结果可复现",
+                min=-1,
+                max=2147483647,
+                order=8
+            ),
+            "guidance_scale": ConfigField(
+                type=float,
+                default=2.5,
+                description="指导强度。豆包推荐5.5，其他推荐2.5。越高越严格遵循提示词",
+                min=0.0,
+                max=20.0,
+                step=0.5,
+                order=9
+            ),
+            "num_inference_steps": ConfigField(
+                type=int,
+                default=30,
+                description="推理步数，影响质量和速度。推荐20-50",
+                min=1,
+                max=150,
+                order=10
+            ),
+            "watermark": ConfigField(
+                type=bool,
+                default=False,
+                description="是否添加水印，豆包默认支持",
+                order=11
+            ),
+            "custom_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="正面提示词增强，自动添加到用户描述后",
+                input_type="textarea",
+                rows=2,
+                order=12
+            ),
+            "negative_prompt_add": ConfigField(
+                type=str,
+                default="low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts",
+                description="负面提示词，避免不良内容。豆包可留空但需保留引号",
+                input_type="textarea",
+                rows=2,
+                order=13
+            ),
+            "artist": ConfigField(
+                type=str,
+                default="",
+                description="艺术家风格标签（砂糖云专用）。留空则不添加",
+                order=14
+            ),
+            "support_img2img": ConfigField(
+                type=bool,
+                default=True,
+                description="该模型是否支持图生图功能，请根据API文档自行判断。设为false时会自动降级为文生图",
+                order=15
+            ),
+            "auto_recall_delay": ConfigField(
+                type=int,
+                default=0,
+                description="自动撤回延时（秒）。大于0时启用撤回，0表示不撤回。需先在「自动撤回配置」中开启总开关",
+                min=0,
+                max=120,
+                order=16
+            ),
+        },
+        # 模型6配置 - Qwen融合LoRA
+        "models.model6": {
+            "name": ConfigField(
+                type=str,
+                default="Remile/Qwen-Image-2512-FusionLoRA-ByRemile",
+                description="模型显示名称，在模型列表中展示，版本更新后请手动从 old 目录恢复配置",
+                order=1
+            ),
+            "base_url": ConfigField(
+                type=str,
+                default="https://api-inference.modelscope.cn/v1",
+                description="API服务地址。示例: OpenAI=https://api.openai.com/v1, 硅基流动=https://api.siliconflow.cn/v1, 豆包=https://ark.cn-beijing.volces.com/api/v3, 魔搭=https://api-inference.modelscope.cn/v1, Gemini=https://generativelanguage.googleapis.com",
+                required=True,
+                placeholder="https://api.example.com/v1",
+                order=2
+            ),
+            "api_key": ConfigField(
+                type=str,
+                default="Bearer xxxxxxxxxxxxxxxxxxxxxx",
+                description="API密钥。OpenAI/modelscope格式需'Bearer '前缀，豆包/Gemini格式无需前缀",
+                input_type="password",
+                required=True,
+                placeholder="Bearer sk-xxx 或 sk-xxx",
+                order=3
+            ),
+            "format": ConfigField(
+                type=str,
+                default="modelscope",
+                description="API格式。openai=通用格式，doubao=豆包，gemini=Gemini，modelscope=魔搭，shatangyun=砂糖云(NovelAI)，mengyuai=梦羽AI，zai=Zai(Gemini转发)",
+                choices=["openai", "gemini", "doubao", "modelscope", "shatangyun", "mengyuai", "zai"],
+                order=4
+            ),
+            "model": ConfigField(
+                type=str,
+                default="Remile/Qwen-Image-2512-FusionLoRA-ByRemile",
+                description="模型名称。梦羽AI格式填写模型索引数字（如0、1、2）",
+                placeholder="model-name 或 0",
+                order=5
+            ),
+            "fixed_size_enabled": ConfigField(
+                type=bool,
+                default=False,
+                description="是否固定图片尺寸。开启后强制使用default_size，关闭则麦麦选择",
+                order=6
+            ),
+            "default_size": ConfigField(
+                type=str,
+                default="832x1216",
+                description="默认图片尺寸。OpenAI/豆包/魔搭格式填写如 1024x1024。Gemini格式填写宽高比如 16:9 或 16:9-2K，具体参考官方文档",
+                placeholder="1024x1024 或 16:9-2K",
+                order=7
+            ),
+            "seed": ConfigField(
+                type=int,
+                default=-1,
+                description="随机种子，固定值可确保结果可复现",
+                min=-1,
+                max=2147483647,
+                order=8
+            ),
+            "guidance_scale": ConfigField(
+                type=float,
+                default=2.5,
+                description="指导强度。豆包推荐5.5，其他推荐2.5。越高越严格遵循提示词",
+                min=0.0,
+                max=20.0,
+                step=0.5,
+                order=9
+            ),
+            "num_inference_steps": ConfigField(
+                type=int,
+                default=30,
+                description="推理步数，影响质量和速度。推荐20-50",
+                min=1,
+                max=150,
+                order=10
+            ),
+            "watermark": ConfigField(
+                type=bool,
+                default=False,
+                description="是否添加水印，豆包默认支持",
+                order=11
+            ),
+            "custom_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="正面提示词增强，自动添加到用户描述后",
+                input_type="textarea",
+                rows=2,
+                order=12
+            ),
+            "negative_prompt_add": ConfigField(
+                type=str,
+                default="low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts",
                 description="负面提示词，避免不良内容。豆包可留空但需保留引号",
                 input_type="textarea",
                 rows=2,
