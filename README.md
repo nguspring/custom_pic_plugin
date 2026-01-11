@@ -87,7 +87,7 @@
   - 克隆本仓库
 
    ```shell
-   git clone https://github.com/1021143806/custom_pic_plugin
+   git clone https://github.com/nguspring/custom_pic_plugin
    ```
    
   - 重启 maibot 后你会看到在当前插件文件夹 `MaiBot/plugins/custom_pic_plugin`中生成了一个配置文件 `config.toml`
