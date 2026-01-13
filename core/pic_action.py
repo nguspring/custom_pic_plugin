@@ -18,7 +18,7 @@ from .image_search_adapter import ImageSearchAdapter
 
 logger = get_logger("pic_action")
 
-class Custom_Pic_Action(BaseAction):
+class CustomPicAction(BaseAction):
     """统一的图片生成动作，智能检测文生图或图生图"""
 
     # 激活设置
@@ -889,4 +889,3 @@ class Custom_Pic_Action(BaseAction):
             cleaned_text = cleaned_text[:100]
             
         return cleaned_text
-

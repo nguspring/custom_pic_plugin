@@ -268,7 +268,7 @@ class AutoSelfieTask(AsyncTask):
                     ask_message = random.choice(templates)
 
             # 3. 调用 Action 生成图片
-            from .pic_action import Custom_Pic_Action
+            from .pic_action import CustomPicAction
             
             # 构造虚拟消息对象 (DatabaseMessages) 用于 Action 初始化
             # 由于DatabaseMessages比较复杂且字段多变，我们尽可能提供必要的字段
@@ -329,7 +329,7 @@ class AutoSelfieTask(AsyncTask):
             }
             
             # 实例化 Action
-            action_instance = Custom_Pic_Action(
+            action_instance = CustomPicAction(
                 action_data=action_data,
                 action_reasoning="Auto selfie task triggered",
                 cycle_timers={},

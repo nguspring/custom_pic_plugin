@@ -11,7 +11,7 @@ from src.plugin_system.base.config_types import (
     ConfigTab,
 )
 
-from .core.pic_action import Custom_Pic_Action
+from .core.pic_action import CustomPicAction
 from .core.pic_command import PicGenerationCommand, PicConfigCommand, PicStyleCommand
 from .core.config_manager import EnhancedConfigManager
 from .core.auto_selfie_task import AutoSelfieTask
@@ -908,7 +908,7 @@ class CustomPicPlugin(BasePlugin):
         components = []
 
         if enable_unified_generation:
-            components.append((Custom_Pic_Action.get_action_info(), Custom_Pic_Action))
+            components.append((CustomPicAction.get_action_info(), CustomPicAction))
 
         # 优先注册更具体的配置管理命令，避免被通用风格命令拦截
         if enable_pic_config:
