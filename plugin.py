@@ -23,7 +23,7 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name: str = "custom_pic_plugin"  # type: ignore[assignment]
-    plugin_version: str = "3.4.0"
+    plugin_version: str = "3.4.1"
     plugin_author: str = "Ptrel，Rabbit，saberlights Kiuon，NGU-SprinG"
     enable_plugin: bool = True  # type: ignore[assignment]
     dependencies: List[str] = []  # type: ignore[assignment]
@@ -424,6 +424,26 @@ class CustomPicPlugin(BasePlugin):
                 depends_on="selfie.enabled",
                 depends_value=True,
                 order=6
+            ),
+            "scene_mirror": ConfigField(
+                type=str,
+                default="mirror selfie, reflection in mirror, holding phone in hand, phone visible, arm slightly bent, looking at mirror, indoor scene, soft lighting, high quality",
+                description="对镜自拍模式（mirror）的场景描述",
+                input_type="textarea",
+                rows=2,
+                depends_on="selfie.enabled",
+                depends_value=True,
+                order=7
+            ),
+            "scene_standard": ConfigField(
+                type=str,
+                default="selfie, front camera view, (cowboy shot or full body shot or upper body), looking at camera, slight high angle selfie",
+                description="标准自拍模式（standard）的场景描述",
+                input_type="textarea",
+                rows=2,
+                depends_on="selfie.enabled",
+                depends_value=True,
+                order=8
             )
         },
         "auto_recall": {
@@ -441,15 +461,33 @@ class CustomPicPlugin(BasePlugin):
                 description="是否启用定时自拍功能。开启后MaiBot会定时自动发送自拍，让Bot更像真人",
                 order=1
             ),
+            "schedule_mode": ConfigField(
+                type=str,
+                default="interval",
+                description="调度模式。interval=倒计时模式（每隔N分钟），times=指定时间点模式（每天固定时间）",
+                choices=["interval", "times"],
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=2
+            ),
+            "schedule_times": ConfigField(
+                type=list,
+                default=["08:00", "12:00", "20:00"],
+                description="指定发送时间点列表（24小时制 HH:MM），仅在 schedule_mode='times' 时生效",
+                placeholder="[\"08:00\", \"12:00\", \"20:00\"]",
+                depends_on="auto_selfie.schedule_mode",
+                depends_value="times",
+                order=3
+            ),
             "interval_minutes": ConfigField(
                 type=int,
                 default=60,
                 description="定时自拍间隔时间（分钟）。建议10-120分钟，太频繁可能会打扰用户",
                 min=1,
                 max=1440,
-                depends_on="auto_selfie.enabled",
-                depends_value=True,
-                order=2
+                depends_on="auto_selfie.schedule_mode",
+                depends_value="interval",
+                order=4
             ),
             "ask_message": ConfigField(
                 type=str,
@@ -458,7 +496,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="你看这张照片怎么样？",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=3
+                order=5
             ),
             "selfie_style": ConfigField(
                 type=str,
@@ -467,7 +505,7 @@ class CustomPicPlugin(BasePlugin):
                 choices=["standard", "mirror"],
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=4
+                order=6
             ),
             "model_id": ConfigField(
                 type=str,
@@ -476,7 +514,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="model1",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=5
+                order=7
             ),
             "use_replyer_for_ask": ConfigField(
                 type=bool,
@@ -484,7 +522,7 @@ class CustomPicPlugin(BasePlugin):
                 description="是否使用MaiBot的replyer模型生成询问语。开启后会根据上下文动态生成自然的询问语，关闭则使用固定询问语或随机模板",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=6
+                order=8
             ),
             "sleep_mode_enabled": ConfigField(
                 type=bool,
@@ -492,7 +530,7 @@ class CustomPicPlugin(BasePlugin):
                 description="是否启用'麦麦睡觉'功能。开启后在设定时间段内不会发送定时自拍",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=7
+                order=9
             ),
             "sleep_start_time": ConfigField(
                 type=str,
@@ -501,7 +539,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="23:00",
                 depends_on="auto_selfie.sleep_mode_enabled",
                 depends_value=True,
-                order=8
+                order=10
             ),
             "sleep_end_time": ConfigField(
                 type=str,
@@ -510,7 +548,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="07:00",
                 depends_on="auto_selfie.sleep_mode_enabled",
                 depends_value=True,
-                order=9
+                order=11
             ),
             "allowed_chat_ids": ConfigField(
                 type=list,
@@ -519,7 +557,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="[\"qq:123456:private\", \"qq:654321:group\"]",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=10
+                order=12
             )
         },
         "prompt_optimizer": {

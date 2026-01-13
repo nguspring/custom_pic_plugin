@@ -499,10 +499,12 @@ class CustomPicAction(BaseAction):
         # 3. 定义自拍风格特定的场景设置（通用版：适用于真实风格和二次元风格）
         if selfie_style == "mirror":
             # 对镜自拍：强调倒影、手机在手、室内场景
-            selfie_scene = "mirror selfie, reflection in mirror, holding phone in hand, phone visible, arm slightly bent, looking at mirror, indoor scene, soft lighting, high quality"
+            default_mirror = "mirror selfie, reflection in mirror, holding phone in hand, phone visible, arm slightly bent, looking at mirror, indoor scene, soft lighting, high quality"
+            selfie_scene = str(self.get_config("selfie.scene_mirror", default_mirror))
         else:
             # 前置自拍：强调手臂伸直、眼神交流、半身构图（确保手部入镜）
-            selfie_scene = "selfie, front camera view, (cowboy shot or full body shot or upper body), looking at camera, slight high angle selfie"
+            default_standard = "selfie, front camera view, (cowboy shot or full body shot or upper body), looking at camera, slight high angle selfie"
+            selfie_scene = str(self.get_config("selfie.scene_standard", default_standard))
 
         # 4. 智能手部动作库（比原版更多的动作！）
         hand_actions = [
