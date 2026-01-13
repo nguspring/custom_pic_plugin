@@ -1,6 +1,13 @@
 # Custom Pic Plugin - 智能多模型图片生成插件
 
-基于 Maibot 插件的智能多模型图片生成插件，支持文生图和图生图自动识别。兼容OpenAI、豆包、Gemini、魔搭等多种API格式。提供命令式风格转换、模型配置管理、结果缓存等功能。（参考 doubao_pic_plugin 进行二次开发）
+> **修改版说明**：本仓库为原版插件的修改版，由 nguspring 维护。
+> - 原版仓库：https://github.com/1021143806/custom_pic_plugin
+> - 修改版版本：v3.4.0
+> - 修改说明：详见 [新功能添加说明.md](新功能添加说明.md)
+>
+> **修改版定位**：本修改版专注于**定时发送自拍**功能，让Bot更像真人；同时主要对**魔搭模型**进行优化，内置7个精选魔搭模型预设配置，提供开箱即用的体验。
+
+基于 Maibot 插件的智能多模型图片生成插件，支持文生图和图生图自动识别。兼容OpenAI、豆包、Gemini、魔搭等多种API格式。提供命令式风格转换、模型配置管理、结果缓存等功能。**v3.4.0 新增内置Bing图片搜索引擎、自拍模式双负面提示词、7个魔搭模型预设。**
 
 魔搭 api 的优点是调用免费，AI 绘图本身配置需求并不是很高，但是平台收费又都比较贵，魔搭社区有按天计算的免费调用限额，对应麦麦的绘图需求来说完全足够。如果想接其他风格绘图的可以使用豆包和 GPT 模型。
 
@@ -29,23 +36,70 @@
    - **风格管理**：`/dr styles`、`/dr style <风格名>` - 查看风格详情
 
 ### ⚙️ 高级功能
-   - **提示词优化器**：自动将中文描述优化为专业英文提示词
-   - **动态配置**：运行时切换模型，无需重启
-   - **聊天流独立配置**：每个聊天流可独立开关插件/模型/撤回
-   - **自动撤回**：支持按模型配置图片自动撤回延时
-   - **风格别名**：支持中文别名，如"卡通"对应"cartoon"
-   - **结果缓存**：相同参数自动复用结果
-   - **调试开关**：可控制提示信息显示
-   - **图生图开关**：模型级别的图生图支持控制
+   - **⏰ 定时自拍**：Bot 会定时自动发送自拍，支持"麦麦睡觉"模式（睡眠时间段不发送）
+   - **🔍 智能参考搜索**：内置Bing图片搜索，自动联网搜索陌生角色图片并提取特征（v3.4.0 新增）
+   - **🧠 提示词优化器**：自动将中文描述优化为专业英文提示词
+   - **🤖 动态配置**：运行时切换模型，无需重启；支持每个聊天流独立配置开关
+   - **🔄 自动撤回**：支持按模型配置图片自动撤回延时
+   - **🎭 风格别名**：支持中文别名，如"卡通"对应"cartoon"
+   - **💾 结果缓存**：相同参数自动复用结果，节省资源
 
-## 📋 组件说明
+## ⏰ 定时自拍功能（v3.4.0 新增）
 
-### Action组件 - 智能图片生成
-   - **激活方式**：Focus模式使用LLM判定，Normal模式使用关键词
-   - **支持场景**：
-        - 文生图：用户描述要画的内容
-        - 图生图：回复图片并要求修改
-   - **关键词**：`画`、`绘制`、`生成图片`、`图生图`、`修改图片`等
+**功能描述**：开启后，麦麦会按照设定的时间间隔（如60分钟）自动向活跃的聊天群组或私聊发送一张自拍。发送时会附带一句自然的询问语（如"你看这张照片怎么样？"）。
+
+**灵感来源**：本功能的灵感来源于 A-Dawn 的 [A_MIND 插件](https://github.com/A-Dawn/A_MIND) 和 XXXxx7258 的 [Mai_Only_You 插件](https://github.com/XXXxx7258/Mai_Only_You)，感谢两位开发者的创意启发。
+
+**配置项** (`[auto_selfie]` 节)：
+- `enabled`: 总开关，默认为 false（需手动开启）
+- `interval_minutes`: 自拍间隔时间（分钟），默认 60 分钟
+- `selfie_style`: 自拍风格，支持 `standard`（标准）和 `mirror`（对镜）
+- `use_replyer_for_ask`: 是否使用麦麦的回复模型生成自然的询问语（推荐开启）
+- `sleep_mode_enabled`: 是否开启睡眠模式（默认 true）
+- `sleep_start_time`: 睡眠开始时间（如 "23:00"）
+- `sleep_end_time`: 睡眠结束时间（如 "07:00"）
+
+**注意**：麦麦只会在"活跃"的聊天流中发送自拍。
+
+## 🔍 智能参考搜索（v3.4.0 新增）
+
+**功能描述**：当用户让麦麦画一个绘图模型不认识的角色（如"画一个博丽灵梦"）时，如果开启了此功能，插件会自动：
+1. 使用内置的 Bing 搜索引擎搜索该角色的图片
+2. 使用视觉模型（如 GPT-4o）分析图片特征（发色、瞳色、服饰等）
+3. 将提取的特征自动合并到提示词中，尽量还原角色
+
+**配置项** (`[search_reference]` 节)：
+- `enabled`: 是否开启，默认为 false
+- `vision_api_key`: 视觉模型的 API Key（必需）
+- `vision_base_url`: 视觉模型的 API 地址
+- `vision_model`: 视觉模型名称
+
+## 🚀 快速开始
+
+### 1. 安装插件
+  - 进入 `MaiBot/plugins` 目录
+  - 克隆仓库：`git clone https://github.com/1021143806/custom_pic_plugin`
+  - 重启 MaiBot，插件会自动生成 `config.toml`
+
+### 2. 配置模型
+  - 编辑 `config.toml`，在 `[models]` 节下配置你的生图模型。
+  - **推荐使用魔搭社区模型**（免费且质量高）：
+    - 插件目录下的 `model_presets.toml` 文件中内置了 7 个精选的魔搭模型配置。
+    - 直接将需要的配置块复制到 `config.toml` 中即可使用。
+    - 推荐使用 `Tongyi-MAI/Z-Image-Turbo` 作为默认模型。
+
+### 3. 安装依赖
+  - v3.4.0 新增了 `aiohttp` 和 `beautifulsoup4` 依赖，插件系统会自动检测依赖（需手动安装），如遇报错请执行：
+    ```bash
+    pip install aiohttp beautifulsoup4
+    ```
+
+## 📋 使用指南
+
+### 基础功能
+- **文生图**：直接对麦麦说 "画一只猫"、"生成一张风景图"
+- **图生图**：发送图片给麦麦，并说 "把这张图变成二次元风格"
+- **自拍**：对麦麦说 "来张自拍"、"照个镜子"
 
 ### Command组件 - 命令式操作
 1. **风格化图生图** (`/dr <风格>`)
@@ -70,129 +124,12 @@
    - `/dr style <风格名>` - 查看风格详情
    - `/dr help` - 显示帮助信息
 
-## 🚀 快速开始
+5. **定时自拍管理**
+   - `/dr auto_selfie` - 管理定时自拍功能
 
-### 1. 安装插件
-  - 使用命令行工具或是 git base 进入你的麦麦目录
-
-   ```shell
-   cd MaiBot/plugins
-   ```
-
-  - 克隆本仓库
-
-   ```shell
-   git clone https://github.com/1021143806/custom_pic_plugin
-   ```
-   
-  - 重启 maibot 后你会看到在当前插件文件夹 `MaiBot/plugins/custom_pic_plugin`中生成了一个配置文件 `config.toml`
-  - 按照配置文件中的说明填写必要参数后重启 MaiBot 即可让你的麦麦学会不同画风的画画（如何申请 key 请自行前往对应平台官网查看 api 文档）
-
-### 2. 配置说明
-  - 编辑 `config.toml`，配置至少一个模型：
-
-```toml
-[plugin]
-enabled = true  # 是否启用插件
-
-[models.model1]
-name = "我的生图模型"  # 自定义名称（用于切换模型）
-base_url = "https://api.openai.com/v1"  # 根据服务商选择填写ULR
-api_key = "Bearer your_api_key_here"  # 填写你的 API 密钥（不同平台添加 key 时需要注意是否需要前缀 ‘Bearer ’。）
-format = "openai"  # openai/doubao/gemini/modelscope/shatangyun/mengyuai/zai（填写API格式，根据平台选择）
-model = "dall-e-3"  # 填写你要使用的模型
-support_img2img = true  # 是否开启图生图（未启用自动转为文生图）
-```
-
-### 3. 自定义参数
-  - 可在 [generation] 节自定义默认模型、尺寸、指导强度、自定义提示词等参数。
-        - 尺寸，可以选择让 ai 自己判断或是指定尺寸，例如 gpt-image-1 模型不支持生成 512x512 的尺寸，那么我们可以固定只生成 1024x1024 ，需要自行检查兼容性。
-  - 自定义提示词建议学习相关 AI 绘图知识，提示词对模型生图影响极大，大部分生图模型与豆包模糊提示词生图不同，但是使用标准的单词与逗号组合是全模型通用的。
-  - 在 models 类中配置不同的模型，model1，model2 等，可以配置不同的 api 供应商及模型。可通过配置文件中的 default_model 快速切换默认调用模型，如果没有配置，则默认为配置文件第一个模型。
-
-## 💡 使用示例
-
-### 自然语言生图（可以指定model1，model2 等，支持中文）
-```
-用户：麦麦，画一张美少女
-麦麦：[生成图片]
-```
-
-### 自拍模式（Action组件）
-```
-用户：麦麦，来张自拍！
-麦麦：[生成Bot角色的自拍照片，包含随机手部动作]
-```
-
-### 图生图
-```
-用户：[发送图片]
-用户：[回复 麦麦： [图片] ]，说：麦麦，把这张图的背景换成海滩
-麦麦：[生成修改后的图片]
-```
-
-### 命令式风格转换（仅图生图）
-```
-用户：[发送图片]
-用户：[回复 麦麦： [图片] ]，说：/dr cartoon
-麦麦：[应用卡通风格]
-```
-
-### 命令式自然语言生成（智能文/图生图）
-```
-用户：/dr 画一只可爱的猫
-麦麦：[文生图：生成新图片]
-
-用户：[发送图片]
-用户：[回复 麦麦： [图片] ]，说：/dr 用model1画一只猫
-麦麦：[图生图：基于输入图片生成]
-```
-
-### 动态切换模型
-```
-用户：/dr list
-麦麦：📋 可用模型列表：
-• model1 ✅[默认] 🔧[命令] 🖼️[图生图]
-• model2 📝[仅文生图]
-
-用户：/dr set model2
-麦麦：✅ 图生图命令模型已成功切换！
-```
-
-## ⚙️ 配置说明
-
-### 基础配置
-- `plugin.enabled` - 是否启用插件
-- `generation.default_model` - Action组件使用的默认模型
-- `components.pic_command_model` - Command组件使用的模型
-
-### 高级配置
-- `components.enable_debug_info` - 调试信息开关
-- `components.admin_users` - 管理员用户ID列表
-- `cache.enabled` - 结果缓存开关
-- `cache.max_size` - 最大缓存数量
-- `prompt_optimizer.enabled` - 提示词优化器开关
-- `auto_recall.enabled` - 自动撤回总开关
-
-### 风格配置
-```toml
-[styles]
-cartoon = "cartoon style, anime style, colorful, vibrant colors"
-oil_painting = "oil painting style, classic art, brush strokes"
-
-[style_aliases]
-cartoon = "卡通,动漫"
-oil_painting = "油画,古典"
-```
-
-### 模型配置
-每个模型支持独立配置：
-- `support_img2img` - 是否支持图生图
-- `fixed_size_enabled` - 是否固定图片尺寸
-- `guidance_scale` - 指导强度
-- `num_inference_steps` - 推理步数
-- `custom_prompt_add` - 正面提示词增强
-- `negative_prompt_add` - 负面提示词
+### 进阶配置
+- **双自拍模式**：在 `[selfie]` 节中可分别配置 `negative_prompt_standard`（标准自拍负面词）和 `negative_prompt_mirror`（对镜自拍负面词），避免标准自拍出现手机。
+- **自动撤回**：在 `[models.xxx]` 中设置 `auto_recall_delay`（秒），可实现图片发送后自动撤回（阅后即焚）。
 
 ## 🔧 依赖说明
 
@@ -229,17 +166,90 @@ oil_painting = "油画,古典"
 - 模型是否支持图生图请参考各平台官方文档（注：在`support_img2img = true` - 是否支持图生图中填写true/false，请自行判断）
 - Action组件、魔搭、Grok、梦羽AI和砂糖云不支持图生图功能（注：梦羽AI和砂糖云支持NSFW，请自行判断）
 
+## 🙏 致谢
+
+感谢以下开发者为本插件做出的贡献：
+
+- **原作者**：1021143806 (Ptrel) - 创建了原版 custom_pic_plugin 插件
+- **Rabbit-Jia-Er** - 添加了多模型调用和命令功能
+- **saberlights Kiuon** - 添加了自拍功能和自然语言命令功能
+- **A-Dawn** - 感谢对代码问题排查提供的思路，以及 A_MIND 插件带来的灵感启发
+- **XXXxx7258** - 感谢 Mai_Only_You 插件带来的灵感启发
+
+本插件搜图功能部分代码来自于 https://github.com/XXXxx7258/google_search_plugin
+
+**特别感谢**：感谢我的小乐作为首席体验官在线试毒:)
+
+## 📄 许可证
+
+本插件采用 AGPL-3.0 许可证。
+
 ## 贡献和反馈
 
 欢迎提交 Issue 和 Pull Request！
 
 ---
 
-## 未来计划
+## 未来计划（大饼）
 
-考虑兼容 ComfyUI 实现自定义生图。
+考虑兼容 ComfyUI 实现自定义生图。继续对定时自拍功能进行升级，增加更多样化的自拍风格、智能场景选择和更自然的互动模式。
+
+**我的期望**：希望通过统一 TTS 语音合成插件、修改版 custom_pic_plugin 插件、A_MIND 插件、Mai_Only_You 插件这四个插件，塑造出一个真实的麦麦来陪伴用户。让麦麦不仅能用声音与用户交流，还能主动分享自己的生活照片，拥有自己的记忆和情感，成为一个真正有温度的数字伙伴。
 
 ## 📝 更新日志
+
+### v3.4.0
+- ⏰ **定时自拍功能正式版**：完整实现定时自拍功能，支持睡眠模式、自定义间隔及回复生成
+- 🔍 **内置搜图引擎**：智能参考搜索功能现在不再依赖google_search_plugin，内置独立的Bing图片搜索引擎
+- 📷 **自拍模式双负面提示词**：将自拍模式负面提示词拆分为`negative_prompt_standard`（标准自拍）和`negative_prompt_mirror`（对镜自拍）两个配置项
+- 🎨 **7个魔搭模型预设**：内置7个精选魔搭模型预设配置（详见 `model_presets.toml`）：
+  - Tongyi-MAI/Z-Image-Turbo（推荐默认，速度快质量好）
+  - QWQ114514123/WAI-illustrious-SDXL-v16（动漫插画风格）
+  - ChenkinNoob/ChenkinNoob-XL-V0.2（高质量二次元）
+  - Sawata/Qwen-image-2512-Anime（Qwen动漫专用）
+  - cancel13/liaocao（北欧绘本画风）
+  - Remile/Qwen-Image-2512-FusionLoRA-ByRemile（融合LoRA多风格）
+  - Qwen/Qwen-Image-Edit-2511（Qwen官方图像编辑）
+- 📦 **新增依赖声明**：添加 `requirements.txt`，声明 `aiohttp` 和 `beautifulsoup4` 依赖
+
+### v3.3.8 (修改版)
+- 🔧 优化自拍模式提示词
+- 🆕 拆分自拍负面提示词：支持standard和mirror两种模式使用不同的负面提示词配置，防止冲突
+  - negative_prompt_standard：标准自拍模式（禁止设备出现）
+  - negative_prompt_mirror：对镜自拍模式（允许设备出现）
+- 🔧 修复调用点参数问题：统一所有_execute_unified_generation调用点传递7个参数
+- 🔧 尝试解决planner一直读上文导致的姿势固定问题
+- 🔧 版本号更新：插件版本更新至3.3.8
+
+### v3.3.7 (修改版)
+- 🔧 **优化search_reference功能说明**：明确该功能只能缓解而非完全解决模型不认识角色的问题
+- 🔧 **新增使用提示**：如果模型本身就能识别角色或具备联网能力（如Gemini），则无需开启此功能
+- 🔧 **新增使用提示**：图生图模式下不建议开启此功能
+- 🆕 **新增模型7配置**：Qwen/Qwen-Image-Edit-2511，支持图生图功能
+- 🔧 **更新模型1描述**：Tongyi-MAI/Z-Image-Turbo适合日常和真实风格
+- 🔧 **模型标题优化**：所有模型标题使用原始模型名称，不再翻译
+- 🔧 **缓存默认值调整**：结果缓存默认值改为false，避免用户首次使用时意外启用缓存
+- 🔧 **版本号更新**：插件版本更新至3.3.7
+
+### v3.3.6 (修改版)
+- 🆕 **新增6个预设魔搭模型配置**：通义MAI极速版、WAI插画SDXL、ChenkinNoob XL、Qwen动漫2512、潦草模型、Qwen融合LoRA
+- 🆕 **新增写实风格配置**：reality风格，照片级写实风格
+- 🔧 **优化卡通风格配置**：更新cartoon风格提示词，更符合二次元风格
+- 🔧 **模型管理界面优化**：模型管理标签页显示所有预设模型
+- 🔧 **版本号更新**：插件版本更新至3.3.6
+
+### v3.3.5 (修改版)
+- 🆕 **内置搜索引擎功能**：将联网搜索插件的搜图功能内置到AI绘图插件中
+- 🆕 **新增 search_engines 模块**：包含Bing、搜狗、DuckDuckGo三种搜索引擎
+- 🔧 **智能参考搜索功能升级**：不再依赖外部联网搜索插件
+- 🔧 **依赖更新**：新增 aiohttp、beautifulsoup4、lxml、ddgs 依赖包
+
+### v3.3.4 (修改版)
+- 🆕 **新增定时自拍功能**：支持定时自动发送自拍，让Bot更像真人
+- 🆕 **新增智能参考搜索功能**：自动搜索角色图片并提取特征，解决模型不认识角色的问题
+- 🆕 **新增自拍负面提示词配置**：支持单独设置自拍模式的负面提示词
+- 🆕 **新增 `/dr auto_selfie` 命令**：管理定时自拍功能
+- 🔧 **配置界面优化**：新增定时自拍和智能参考搜索配置节
 
 ### v3.3.3
 - 🗑️ **移除基础中文转英文功能**：不再使用简单的词汇映射进行中文到英文的转换，完全依赖提示词优化器（LLM）进行高质量的提示词优化，提升生成效果。
@@ -291,6 +301,6 @@ oil_painting = "油画,古典"
 
 ## 🔗 版权信息
 
-- 作者：MaiBot 团队
-- 许可证：GPL-v3.0-or-later
-- 项目主页：https://github.com/MaiM-with-u/maibot
+- 作者：nguspring
+- 许可证：AGPL-3.0
+- 项目主页：https://github.com/nguspring/custom_pic_plugin

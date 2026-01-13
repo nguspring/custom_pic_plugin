@@ -21,7 +21,7 @@ class CacheManager:
         """获取最大缓存数量配置"""
         return self.action.get_config("cache.max_size", 10)
 
-    def get_cached_result(self, description: str, model: str, size: str, strength: float = None, is_img2img: bool = False) -> Optional[str]:
+    def get_cached_result(self, description: str, model: str, size: str, strength: Optional[float] = None, is_img2img: bool = False) -> Optional[str]:
         """获取缓存的结果"""
         if not self.action.get_config("cache.enabled", True):
             return None
@@ -44,7 +44,7 @@ class CacheManager:
             logger.warning(f"{self.log_prefix} 获取缓存失败: {e}")
             return None
 
-    def cache_result(self, description: str, model: str, size: str, strength: float = None, is_img2img: bool = False, result: str = None):
+    def cache_result(self, description: str, model: str, size: str, strength: Optional[float] = None, is_img2img: bool = False, result: Optional[str] = None):
         """缓存结果"""
         if not self.action.get_config("cache.enabled", True) or not result:
             return
@@ -71,7 +71,7 @@ class CacheManager:
         except Exception as e:
             logger.warning(f"{self.log_prefix} 缓存结果失败: {e}")
 
-    def remove_cached_result(self, description: str, model: str, size: str, strength: float = None, is_img2img: bool = False):
+    def remove_cached_result(self, description: str, model: str, size: str, strength: Optional[float] = None, is_img2img: bool = False):
         """移除缓存的结果"""
         try:
             with self._cache_lock:
@@ -126,7 +126,7 @@ class CacheManager:
         return f"txt2img_{description[:100]}|{model}|{size}"
 
     @classmethod
-    def _get_img2img_cache_key(cls, description: str, model: str, size: str, strength: float = None) -> str:
+    def _get_img2img_cache_key(cls, description: str, model: str, size: str, strength: Optional[float] = None) -> str:
         """生成图生图缓存键"""
         strength_str = str(strength) if strength is not None else "default"
         return f"img2img_{description[:50]}|{model}|{size}|{strength_str}"

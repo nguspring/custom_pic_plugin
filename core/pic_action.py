@@ -143,7 +143,7 @@ class Custom_Pic_Action(BaseAction):
                 return False, "跳过 /dr 命令"
 
         # 检查插件是否在当前聊天流启用
-        global_enabled = self.get_config("plugin.enabled", True)
+        global_enabled = bool(self.get_config("plugin.enabled", True))
         if not runtime_state.is_plugin_enabled(self.chat_id, global_enabled):
             logger.info(f"{self.log_prefix} 插件在当前聊天流已禁用")
             # 修正：return 需要缩进在 if 内部
@@ -161,7 +161,7 @@ class Custom_Pic_Action(BaseAction):
 
         # 如果没有指定模型，使用运行时状态的默认模型
         if not model_id:
-            global_default = self.get_config("generation.default_model", "model1")
+            global_default = str(self.get_config("generation.default_model", "model1"))
             model_id = runtime_state.get_action_default_model(self.chat_id, global_default)
 
         # 检查模型是否在当前聊天流启用
@@ -207,9 +207,9 @@ class Custom_Pic_Action(BaseAction):
                 # 如果搜到了图片链接
                 if image_url:
                     # 4. 读取配置里的视觉API信息
-                    v_api_key = self.get_config("search_reference.vision_api_key", "")
-                    v_base_url = self.get_config("search_reference.vision_base_url", "https://api.openai.com/v1")
-                    v_model = self.get_config("search_reference.vision_model", "gpt-4o")
+                    v_api_key = str(self.get_config("search_reference.vision_api_key", ""))
+                    v_base_url = str(self.get_config("search_reference.vision_base_url", "https://api.openai.com/v1"))
+                    v_model = str(self.get_config("search_reference.vision_model", "gpt-4o"))
                     
                     # 如果配置了API Key，就开始看图分析
                     if v_api_key:
@@ -275,7 +275,7 @@ class Custom_Pic_Action(BaseAction):
             logger.info(f"{self.log_prefix} 自拍模式处理后的提示词: {description}") # 显示所有提示词
 
             # 👇 下面这几行是新增的：读取自拍专用负面提示词 👇
-            selfie_negative_prompt = self.get_config("selfie.negative_prompt", "").strip()
+            selfie_negative_prompt = str(self.get_config("selfie.negative_prompt", "")).strip()
 
             # 检查是否配置了参考图片
             reference_image = self._get_selfie_reference_image()
@@ -308,8 +308,11 @@ class Custom_Pic_Action(BaseAction):
             return await self._execute_unified_generation(description, model_id, size, None, None, selfie_negative_prompt) #修改：增加selfie_negative_prompt
 
     # 👇 新增参数 extra_negative_prompt: str = None
-    async def _execute_unified_generation(self, description: str, model_id: str, size: str, strength: float = None, input_image_base64: str = None, extra_negative_prompt: str = None  ) -> Tuple[bool, Optional[str]]:
+    async def _execute_unified_generation(self, description: str, model_id: str, size: str, strength: Optional[float] = None, input_image_base64: Optional[str] = None, extra_negative_prompt: Optional[str] = None) -> Tuple[bool, Optional[str]]:
         """统一的图片生成执行方法"""
+
+        success = False
+        result: Optional[str] = None
 
         # 获取模型配置
         model_config = self._get_model_config(model_id)
@@ -405,7 +408,7 @@ class Custom_Pic_Action(BaseAction):
             success = False
             result = f"图片生成服务遇到意外问题: {str(e)[:100]}"
 
-        if success:
+        if success and result:
             final_image_data = self.image_processor.process_api_response(result)
 
             if final_image_data:
@@ -428,7 +431,7 @@ class Custom_Pic_Action(BaseAction):
                         encode_success, encode_result = await asyncio.to_thread(
                             self.image_processor.download_and_encode_base64, final_image_data
                         )
-                        if encode_success:
+                        if encode_success and encode_result:
                             send_success = await self.send_image(encode_result)
                             if send_success:
                                 mode_text = "图生图" if is_img2img else "文生图"
@@ -453,12 +456,15 @@ class Custom_Pic_Action(BaseAction):
             mode_text = "图生图" if is_img2img else "文生图"
             await self.send_text(f"哎呀，{mode_text}时遇到问题：{result}")
             return False, f"{mode_text}失败: {result}"
+        
+        # 确保所有路径都有返回值
+        return False, "未知错误"
 
-    def _get_model_config(self, model_id: str = None) -> Dict[str, Any]:
+    def _get_model_config(self, model_id: Optional[str] = None) -> Dict[str, Any]:
         """获取指定模型的配置，支持热重载"""
         # 如果没有指定模型ID，使用默认模型
         if not model_id:
-            model_id = self.get_config("generation.default_model", "model1")
+            model_id = str(self.get_config("generation.default_model", "model1"))
 
         # 构建模型配置的路径
         model_config_path = f"models.{model_id}"
@@ -471,7 +477,9 @@ class Custom_Pic_Action(BaseAction):
             if default_model_id != model_id:
                 model_config = self.get_config(f"models.{default_model_id}")
 
-        return model_config or {}
+        if isinstance(model_config, dict):
+            return model_config
+        return {}
 
     def _validate_image_size(self, size: str) -> bool:
         """验证图片尺寸格式是否正确（委托给size_utils）"""
@@ -486,7 +494,7 @@ class Custom_Pic_Action(BaseAction):
         forced_subject = "(1girl:1.4), (solo:1.3)"
 
         # 2. 从独立的selfie配置中获取Bot的默认形象特征
-        bot_appearance = self.get_config("selfie.prompt_prefix", "").strip()
+        bot_appearance = str(self.get_config("selfie.prompt_prefix", "")).strip()
 
         # 3. 定义自拍风格特定的场景设置（通用版：适用于真实风格和二次元风格）
         if selfie_style == "mirror":
@@ -671,7 +679,7 @@ class Custom_Pic_Action(BaseAction):
         Returns:
             图片的base64编码，如果不存在则返回None
         """
-        image_path = self.get_config("selfie.reference_image_path", "").strip()
+        image_path = str(self.get_config("selfie.reference_image_path", "")).strip()
         if not image_path:
             return None
 
@@ -694,7 +702,7 @@ class Custom_Pic_Action(BaseAction):
             logger.error(f"{self.log_prefix} 加载自拍参考图片失败: {e}")
             return None
 
-    async def _schedule_auto_recall_for_recent_message(self, model_config: Dict[str, Any] = None):
+    async def _schedule_auto_recall_for_recent_message(self, model_config: Optional[Dict[str, Any]] = None):
         """安排最近发送消息的自动撤回
 
         通过查询数据库获取最近发送的消息ID，然后安排撤回任务
@@ -703,7 +711,7 @@ class Custom_Pic_Action(BaseAction):
             model_config: 当前使用的模型配置，用于检查撤回延时设置
         """
         # 检查全局开关
-        global_enabled = self.get_config("auto_recall.enabled", False)
+        global_enabled = bool(self.get_config("auto_recall.enabled", False))
         if not global_enabled:
             return
 
@@ -718,11 +726,12 @@ class Custom_Pic_Action(BaseAction):
         # 获取模型ID用于检查运行时撤回状态
         model_id = None
         models_config = self.get_config("models", {})
-        for mid, config in models_config.items():
-            # 通过模型名称匹配，避免字典比较问题
-            if config.get("model") == model_config.get("model"):
-                model_id = mid
-                break
+        if isinstance(models_config, dict):
+            for mid, config in models_config.items():
+                # 通过模型名称匹配，避免字典比较问题
+                if isinstance(config, dict) and config.get("model") == model_config.get("model"):
+                    model_id = mid
+                    break
 
         # 检查运行时撤回状态
         if model_id and not runtime_state.is_recall_enabled(self.chat_id, model_id, global_enabled):
@@ -822,9 +831,11 @@ class Custom_Pic_Action(BaseAction):
             return ""
             
         # 获取消息文本
+        # 使用 getattr 安全获取 raw_message
+        raw_msg = getattr(self.action_message, "raw_message", "")
         message_text = (self.action_message.processed_plain_text or
                        self.action_message.display_message or
-                       self.action_message.raw_message or "").strip()
+                       raw_msg or "").strip()
         
         if not message_text:
             return ""

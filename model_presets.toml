@@ -1,0 +1,148 @@
+# 魔搭模型预设配置
+# 将需要的模型配置复制到 config.toml 的 [models] 节下即可使用
+# 所有模型均使用魔搭社区免费API，每天有免费调用额度
+
+# ==========================================
+# 预设模型列表（共7个）
+# ==========================================
+# model1: Tongyi-MAI/Z-Image-Turbo - 通义图像Turbo，速度快质量好（推荐默认）
+# model2: QWQ114514123/WAI-illustrious-SDXL-v16 - 动漫插画风格，细节丰富
+# model3: ChenkinNoob/ChenkinNoob-XL-V0.2 - 高质量二次元风格
+# model4: Sawata/Qwen-image-2512-Anime - Qwen动漫专用模型
+# model5: cancel13/liaocao - 潦草风格，北欧绘本画风
+# model6: Remile/Qwen-Image-2512-FusionLoRA-ByRemile - 融合LoRA多风格模型
+# model7: Qwen/Qwen-Image-Edit-2511 - Qwen官方图像编辑模型
+# ==========================================
+
+[models.model1]
+# 通义图像Turbo - 速度快质量好（推荐默认）
+name = "Tongyi-MAI/Z-Image-Turbo"
+base_url = "https://api-inference.modelscope.cn/v1"
+api_key = "Bearer ms-xxxxxxxxxxxxxxxxxxxxxx"  # 替换为你的魔搭API Key
+format = "modelscope"
+model = "Tongyi-MAI/Z-Image-Turbo"
+fixed_size_enabled = false
+default_size = "1024x1024"
+seed = -1
+guidance_scale = 2.5
+num_inference_steps = 30
+watermark = false
+custom_prompt_add = ""
+negative_prompt_add = "low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs"
+artist = ""
+support_img2img = true
+auto_recall_delay = 0
+
+[models.model2]
+# WAI-illustrious - 动漫插画风格，细节丰富
+name = "QWQ114514123/WAI-illustrious-SDXL-v16"
+base_url = "https://api-inference.modelscope.cn/v1"
+api_key = "Bearer ms-xxxxxxxxxxxxxxxxxxxxxx"  # 替换为你的魔搭API Key
+format = "modelscope"
+model = "QWQ114514123/WAI-illustrious-SDXL-v16"
+fixed_size_enabled = false
+default_size = "1024x1024"
+seed = -1
+guidance_scale = 2.5
+num_inference_steps = 30
+watermark = false
+custom_prompt_add = ""
+negative_prompt_add = "low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs"
+artist = ""
+support_img2img = true
+auto_recall_delay = 0
+
+[models.model3]
+# ChenkinNoob-XL - 高质量二次元风格
+name = "ChenkinNoob/ChenkinNoob-XL-V0.2"
+base_url = "https://api-inference.modelscope.cn/v1"
+api_key = "Bearer ms-xxxxxxxxxxxxxxxxxxxxxx"  # 替换为你的魔搭API Key
+format = "modelscope"
+model = "ChenkinNoob/ChenkinNoob-XL-V0.2"
+fixed_size_enabled = false
+default_size = "832x1216"
+seed = -1
+guidance_scale = 2.5
+num_inference_steps = 30
+watermark = false
+custom_prompt_add = "esthetic, excellent, medium resolution, newest"
+negative_prompt_add = "low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs"
+artist = ""
+support_img2img = true
+auto_recall_delay = 0
+
+[models.model4]
+# Qwen-image-2512-Anime - Qwen动漫专用模型
+name = "Sawata/Qwen-image-2512-Anime"
+base_url = "https://api-inference.modelscope.cn/v1"
+api_key = "Bearer ms-xxxxxxxxxxxxxxxxxxxxxx"  # 替换为你的魔搭API Key
+format = "modelscope"
+model = "Sawata/Qwen-image-2512-Anime"
+fixed_size_enabled = false
+default_size = "832x1216"
+seed = -1
+guidance_scale = 2.5
+num_inference_steps = 30
+watermark = false
+custom_prompt_add = ""
+negative_prompt_add = "low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs"
+artist = ""
+support_img2img = true
+auto_recall_delay = 0
+
+[models.model5]
+# liaocao - 潦草风格，北欧绘本画风
+name = "cancel13/liaocao"
+base_url = "https://api-inference.modelscope.cn/v1"
+api_key = "Bearer ms-xxxxxxxxxxxxxxxxxxxxxx"  # 替换为你的魔搭API Key
+format = "modelscope"
+model = "cancel13/liaocao"
+fixed_size_enabled = false
+default_size = "832x1216"
+seed = -1
+guidance_scale = 2.5
+num_inference_steps = 30
+watermark = false
+custom_prompt_add = ""
+negative_prompt_add = "low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts"
+artist = ""
+support_img2img = true
+auto_recall_delay = 0
+
+[models.model6]
+# FusionLoRA - 融合LoRA多风格模型
+name = "Remile/Qwen-Image-2512-FusionLoRA-ByRemile"
+base_url = "https://api-inference.modelscope.cn/v1"
+api_key = "Bearer ms-xxxxxxxxxxxxxxxxxxxxxx"  # 替换为你的魔搭API Key
+format = "modelscope"
+model = "Remile/Qwen-Image-2512-FusionLoRA-ByRemile"
+fixed_size_enabled = false
+default_size = "832x1216"
+seed = -1
+guidance_scale = 2.5
+num_inference_steps = 30
+watermark = false
+custom_prompt_add = ""
+negative_prompt_add = "low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts"
+artist = ""
+support_img2img = true
+auto_recall_delay = 0
+
+[models.model7]
+# Qwen-Image-Edit - Qwen官方图像编辑模型
+name = "Qwen/Qwen-Image-Edit-2511"
+base_url = "https://api-inference.modelscope.cn/v1"
+api_key = "Bearer ms-xxxxxxxxxxxxxxxxxxxxxx"  # 替换为你的魔搭API Key
+format = "modelscope"
+model = "Qwen/Qwen-Image-Edit-2511"
+fixed_size_enabled = false
+default_size = "1024x1024"
+seed = -1
+guidance_scale = 2.5
+num_inference_steps = 30
+watermark = false
+custom_prompt_add = ""
+negative_prompt_add = "low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs"
+artist = ""
+support_img2img = true
+auto_recall_delay = 0

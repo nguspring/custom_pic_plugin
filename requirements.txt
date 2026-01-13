@@ -1,0 +1,8 @@
+# custom_pic_plugin 依赖
+# 这些依赖在 MaiBot 中通常已经安装，如果没有请手动安装
+
+# HTTP 客户端 - 用于API请求和图片搜索
+aiohttp>=3.8.0
+
+# HTML 解析 - 用于内置的Bing图片搜索功能
+beautifulsoup4>=4.9.0

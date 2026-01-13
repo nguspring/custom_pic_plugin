@@ -1,4 +1,4 @@
-from typing import List, Tuple, Type, Dict, Any
+from typing import List, Tuple, Type, Dict, Any, Optional
 import os
 
 from src.plugin_system.base.base_plugin import BasePlugin
@@ -14,6 +14,7 @@ from src.plugin_system.base.config_types import (
 from .core.pic_action import Custom_Pic_Action
 from .core.pic_command import PicGenerationCommand, PicConfigCommand, PicStyleCommand
 from .core.config_manager import EnhancedConfigManager
+from .core.auto_selfie_task import AutoSelfieTask
 
 
 @register_plugin
@@ -21,13 +22,13 @@ class CustomPicPlugin(BasePlugin):
     """统一的多模型图片生成插件，支持文生图和图生图"""
 
     # 插件基本信息
-    plugin_name = "custom_pic_plugin"
-    plugin_version = "3.3.4"
-    plugin_author = "Ptrel，Rabbit"
-    enable_plugin = True
-    dependencies: List[str] = []
-    python_dependencies: List[str] = []
-    config_file_name = "config.toml"
+    plugin_name: str = "custom_pic_plugin"  # type: ignore[assignment]
+    plugin_version: str = "3.4.0"
+    plugin_author: str = "Ptrel，Rabbit，saberlights Kiuon，NGU-SprinG"
+    enable_plugin: bool = True  # type: ignore[assignment]
+    dependencies: List[str] = []  # type: ignore[assignment]
+    python_dependencies: List[str] = ["aiohttp", "beautifulsoup4"]  # type: ignore[assignment]
+    config_file_name: str = "config.toml"  # type: ignore[assignment]
 
     # 配置节元数据
     config_section_descriptions = {
@@ -66,6 +67,12 @@ class CustomPicPlugin(BasePlugin):
             icon="trash",
             order=7
         ),
+        "auto_selfie": ConfigSection(
+            title="定时自拍配置",
+            description="Bot会根据设定的时间间隔自动发送自拍",
+            icon="clock",
+            order=7
+        ),
         "prompt_optimizer": ConfigSection(
             title="提示词优化器",
             description="使用 MaiBot 主 LLM 将用户描述优化为专业绘画提示词",
@@ -102,11 +109,13 @@ class CustomPicPlugin(BasePlugin):
             icon="cpu",
             order=13
         ),
-        "models.model1": ConfigSection(
-            title="模型1配置",
-            icon="box",
-            order=14
-        ),
+        "models.model1": ConfigSection(title="模型1配置", icon="box", order=14),
+        "models.model2": ConfigSection(title="模型2配置", icon="box", order=15),
+        "models.model3": ConfigSection(title="模型3配置", icon="box", order=16),
+        "models.model4": ConfigSection(title="模型4配置", icon="box", order=17),
+        "models.model5": ConfigSection(title="模型5配置", icon="box", order=18),
+        "models.model6": ConfigSection(title="模型6配置", icon="box", order=19),
+        "models.model7": ConfigSection(title="模型7配置", icon="box", order=20),
     }
 
     # 自定义布局：标签页
@@ -128,7 +137,7 @@ class CustomPicPlugin(BasePlugin):
             ConfigTab(
                 id="features",
                 title="功能配置",
-                sections=["selfie", "auto_recall", "prompt_optimizer", "search_reference"],
+                sections=["selfie", "auto_recall", "auto_selfie", "prompt_optimizer", "search_reference"],
                 icon="zap"
             ),
             ConfigTab(
@@ -140,7 +149,7 @@ class CustomPicPlugin(BasePlugin):
             ConfigTab(
                 id="models",
                 title="模型管理",
-                sections=["models", "models.model1"],
+                sections=["models", "models.model1", "models.model2", "models.model3", "models.model4", "models.model5", "models.model6", "models.model7"],
                 icon="cpu"
             ),
             ConfigTab(
@@ -154,7 +163,7 @@ class CustomPicPlugin(BasePlugin):
     )
 
     # 配置Schema
-    config_schema = {
+    config_schema: Dict[str, Dict[str, ConfigField]] = {  # type: ignore[assignment]
         "plugin": {
             "name": ConfigField(
                 type=str,
@@ -166,7 +175,7 @@ class CustomPicPlugin(BasePlugin):
             ),
             "config_version": ConfigField(
                 type=str,
-                default="3.3.3",
+                default="3.4.0",
                 description="插件配置版本号",
                 disabled=True,
                 order=2
@@ -190,7 +199,7 @@ class CustomPicPlugin(BasePlugin):
         "cache": {
             "enabled": ConfigField(
                 type=bool,
-                default=True,
+                default=False,
                 description="是否启用结果缓存，相同参数的请求会复用之前的结果",
                 order=1
             ),
@@ -323,6 +332,14 @@ class CustomPicPlugin(BasePlugin):
                 input_type="textarea",
                 rows=3,
                 order=1
+            ),
+            "reality": ConfigField(
+                type=str,
+                default="photorealistic, professional photography, realistic details, soft natural light, cinematic lighting, proper leg anatomy, realistic proportions, intricate fabric textures",
+                description="写实风格提示词",
+                input_type="textarea",
+                rows=3,
+                order=2
             )
         },
         "style_aliases": {
@@ -339,6 +356,13 @@ class CustomPicPlugin(BasePlugin):
                 description="cartoon 风格的中文别名，支持多别名用逗号分隔",
                 placeholder="卡通,动漫",
                 order=1
+            ),
+            "reality": ConfigField(
+                type=str,
+                default="现实, 真实",
+                description="reality 风格的中文别名，支持多别名用逗号分隔",
+                placeholder="现实, 真实",
+                order=2
             )
         },
         "selfie": {
@@ -368,16 +392,38 @@ class CustomPicPlugin(BasePlugin):
                 depends_value=True,
                 order=3
             ),
+            "negative_prompt_standard": ConfigField(
+                type=str,
+                default="phone, smartphone, mobile device, camera, selfie stick, visible electronic device, phone in hand, hands holding device, device screen, fingers on phone",
+                description="标准自拍模式（standard）专用的负面提示词，会叠加在模型默认负面提示词上。标准自拍：手机在画框外，禁止手机出现",
+                input_type="textarea",
+                rows=2,
+                placeholder="phone, smartphone, camera...",
+                depends_on="selfie.enabled",
+                depends_value=True,
+                order=4
+            ),
+            "negative_prompt_mirror": ConfigField(
+                type=str,
+                default="selfie stick",
+                description="对镜自拍模式（mirror）专用的负面提示词，会叠加在模型默认负面提示词上。对镜自拍：需要手持设备拍照，允许拍照设备出现",
+                input_type="textarea",
+                rows=2,
+                placeholder="selfie stick",
+                depends_on="selfie.enabled",
+                depends_value=True,
+                order=5
+            ),
             "negative_prompt": ConfigField(
                 type=str,
                 default="",
-                description="自拍模式专用的负面提示词，会叠加在模型默认负面提示词上",
+                description="自拍模式通用的负面提示词（可选），会叠加在模型默认负面提示词上",
                 input_type="textarea",
                 rows=2,
                 placeholder="",
                 depends_on="selfie.enabled",
                 depends_value=True,
-                order=4
+                order=6
             )
         },
         "auto_recall": {
@@ -386,6 +432,94 @@ class CustomPicPlugin(BasePlugin):
                 default=False,
                 description="是否启用自动撤回功能（总开关）。关闭后所有模型的撤回都不生效",
                 order=1
+            )
+        },
+        "auto_selfie": {
+            "enabled": ConfigField(
+                type=bool,
+                default=False,
+                description="是否启用定时自拍功能。开启后MaiBot会定时自动发送自拍，让Bot更像真人",
+                order=1
+            ),
+            "interval_minutes": ConfigField(
+                type=int,
+                default=60,
+                description="定时自拍间隔时间（分钟）。建议10-120分钟，太频繁可能会打扰用户",
+                min=1,
+                max=1440,
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=2
+            ),
+            "ask_message": ConfigField(
+                type=str,
+                default="",
+                description="发完自拍后自动发送的询问语。留空则随机选择预设模板",
+                placeholder="你看这张照片怎么样？",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=3
+            ),
+            "selfie_style": ConfigField(
+                type=str,
+                default="standard",
+                description="定时自拍使用的风格。standard=标准自拍（前置摄像头），mirror=对镜自拍",
+                choices=["standard", "mirror"],
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=4
+            ),
+            "model_id": ConfigField(
+                type=str,
+                default="model1",
+                description="定时自拍使用的模型ID",
+                placeholder="model1",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=5
+            ),
+            "use_replyer_for_ask": ConfigField(
+                type=bool,
+                default=True,
+                description="是否使用MaiBot的replyer模型生成询问语。开启后会根据上下文动态生成自然的询问语，关闭则使用固定询问语或随机模板",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=6
+            ),
+            "sleep_mode_enabled": ConfigField(
+                type=bool,
+                default=True,
+                description="是否启用'麦麦睡觉'功能。开启后在设定时间段内不会发送定时自拍",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=7
+            ),
+            "sleep_start_time": ConfigField(
+                type=str,
+                default="23:00",
+                description="麦麦睡觉开始时间（24小时制，格式：HH:MM）。默认23:00",
+                placeholder="23:00",
+                depends_on="auto_selfie.sleep_mode_enabled",
+                depends_value=True,
+                order=8
+            ),
+            "sleep_end_time": ConfigField(
+                type=str,
+                default="07:00",
+                description="麦麦睡觉结束时间（24小时制，格式：HH:MM）。默认07:00",
+                placeholder="07:00",
+                depends_on="auto_selfie.sleep_mode_enabled",
+                depends_value=True,
+                order=9
+            ),
+            "allowed_chat_ids": ConfigField(
+                type=list,
+                default=[],
+                description="允许发送定时自拍的聊天ID白名单。留空则允许所有聊天流（前提是该流已启用插件）",
+                placeholder="[\"qq:123456:private\", \"qq:654321:group\"]",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=10
             )
         },
         "prompt_optimizer": {
@@ -406,7 +540,7 @@ class CustomPicPlugin(BasePlugin):
         "search_reference": {
             "hint": ConfigField(
                 type=str,
-                default="开启后，当用户提到冷门角色名时，插件会自动联网搜索该角色的参考图，并使用视觉AI提取特征（发色、服装等）合并到提示词中，解决模型不认识角色的问题。",
+                default="开启后，当用户提到冷门角色名时，插件会自动联网搜索该角色的参考图，并使用视觉AI提取特征（发色、服装等）合并到提示词中，尽量缓解绘图模型不认识角色的问题。注意：如果使用的绘图模型本身就能够联网或认识角色（如Gemini），则不必开启本功能。",
                 description="功能说明",
                 disabled=True,
                 order=0
@@ -452,126 +586,133 @@ class CustomPicPlugin(BasePlugin):
                 order=1
             )
         },
-        # 基础模型配置模板
+        # 基础模型配置模板 - model1: Tongyi-MAI/Z-Image-Turbo (推荐，速度快质量好)
         "models.model1": {
-            "name": ConfigField(
-                type=str,
-                default="魔搭潦草模型",
-                description="模型显示名称，在模型列表中展示，版本更新后请手动从 old 目录恢复配置",
-                order=1
-            ),
-            "base_url": ConfigField(
-                type=str,
-                default="https://api-inference.modelscope.cn/v1",
-                description="API服务地址。示例: OpenAI=https://api.openai.com/v1, 硅基流动=https://api.siliconflow.cn/v1, 豆包=https://ark.cn-beijing.volces.com/api/v3, 魔搭=https://api-inference.modelscope.cn/v1, Gemini=https://generativelanguage.googleapis.com",
-                required=True,
-                placeholder="https://api.example.com/v1",
-                order=2
-            ),
-            "api_key": ConfigField(
-                type=str,
-                default="Bearer xxxxxxxxxxxxxxxxxxxxxx",
-                description="API密钥。OpenAI/modelscope格式需'Bearer '前缀，豆包/Gemini格式无需前缀",
-                input_type="password",
-                required=True,
-                placeholder="Bearer sk-xxx 或 sk-xxx",
-                order=3
-            ),
-            "format": ConfigField(
-                type=str,
-                default="openai",
-                description="API格式。openai=通用格式，doubao=豆包，gemini=Gemini，modelscope=魔搭，shatangyun=砂糖云(NovelAI)，mengyuai=梦羽AI，zai=Zai(Gemini转发)",
-                choices=["openai", "gemini", "doubao", "modelscope", "shatangyun", "mengyuai", "zai"],
-                order=4
-            ),
-            "model": ConfigField(
-                type=str,
-                default="cancel13/liaocao",
-                description="模型名称。梦羽AI格式填写模型索引数字（如0、1、2）",
-                placeholder="model-name 或 0",
-                order=5
-            ),
-            "fixed_size_enabled": ConfigField(
-                type=bool,
-                default=False,
-                description="是否固定图片尺寸。开启后强制使用default_size，关闭则麦麦选择",
-                order=6
-            ),
-            "default_size": ConfigField(
-                type=str,
-                default="1024x1024",
-                description="默认图片尺寸。OpenAI/豆包/魔搭格式填写如 1024x1024。Gemini格式填写宽高比如 16:9 或 16:9-2K，具体参考官方文档",
-                placeholder="1024x1024 或 16:9-2K",
-                order=7
-            ),
-            "seed": ConfigField(
-                type=int,
-                default=42,
-                description="随机种子，固定值可确保结果可复现",
-                min=-1,
-                max=2147483647,
-                order=8
-            ),
-            "guidance_scale": ConfigField(
-                type=float,
-                default=2.5,
-                description="指导强度。豆包推荐5.5，其他推荐2.5。越高越严格遵循提示词",
-                min=0.0,
-                max=20.0,
-                step=0.5,
-                order=9
-            ),
-            "num_inference_steps": ConfigField(
-                type=int,
-                default=20,
-                description="推理步数，影响质量和速度。推荐20-50",
-                min=1,
-                max=150,
-                order=10
-            ),
-            "watermark": ConfigField(
-                type=bool,
-                default=True,
-                description="是否添加水印，豆包默认支持",
-                order=11
-            ),
-            "custom_prompt_add": ConfigField(
-                type=str,
-                default=", Nordic picture book art style, minimalist flat design, liaocao",
-                description="正面提示词增强，自动添加到用户描述后",
-                input_type="textarea",
-                rows=2,
-                order=12
-            ),
-            "negative_prompt_add": ConfigField(
-                type=str,
-                default="Pornography,nudity,lowres, bad anatomy, bad hands, text, error",
-                description="负面提示词，避免不良内容。豆包可留空但需保留引号",
-                input_type="textarea",
-                rows=2,
-                order=13
-            ),
-            "artist": ConfigField(
-                type=str,
-                default="",
-                description="艺术家风格标签（砂糖云专用）。留空则不添加",
-                order=14
-            ),
-            "support_img2img": ConfigField(
-                type=bool,
-                default=True,
-                description="该模型是否支持图生图功能，请根据API文档自行判断。设为false时会自动降级为文生图",
-                order=15
-            ),
-            "auto_recall_delay": ConfigField(
-                type=int,
-                default=0,
-                description="自动撤回延时（秒）。大于0时启用撤回，0表示不撤回。需先在「自动撤回配置」中开启总开关",
-                min=0,
-                max=120,
-                order=16
-            ),
-        }
+            "name": ConfigField(type=str, default="Tongyi-MAI/Z-Image-Turbo", description="模型显示名称", order=1),
+            "base_url": ConfigField(type=str, default="https://api-inference.modelscope.cn/v1", description="API服务地址", required=True, order=2),
+            "api_key": ConfigField(type=str, default="Bearer xxxxxxxxxxxxxxxxxxxxxx", description="API密钥", input_type="password", required=True, order=3),
+            "format": ConfigField(type=str, default="modelscope", description="API格式", choices=["openai", "gemini", "doubao", "modelscope", "shatangyun", "mengyuai", "zai"], order=4),
+            "model": ConfigField(type=str, default="Tongyi-MAI/Z-Image-Turbo", description="模型名称", order=5),
+            "fixed_size_enabled": ConfigField(type=bool, default=False, description="是否固定图片尺寸", order=6),
+            "default_size": ConfigField(type=str, default="1024x1024", description="默认图片尺寸", order=7),
+            "seed": ConfigField(type=int, default=-1, description="随机种子", min=-1, max=2147483647, order=8),
+            "guidance_scale": ConfigField(type=float, default=2.5, description="指导强度", min=0.0, max=20.0, step=0.5, order=9),
+            "num_inference_steps": ConfigField(type=int, default=30, description="推理步数", min=1, max=150, order=10),
+            "watermark": ConfigField(type=bool, default=False, description="是否添加水印", order=11),
+            "custom_prompt_add": ConfigField(type=str, default="", description="正面提示词增强", input_type="textarea", rows=2, order=12),
+            "negative_prompt_add": ConfigField(type=str, default="low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs", description="负面提示词", input_type="textarea", rows=2, order=13),
+            "artist": ConfigField(type=str, default="", description="艺术家风格标签", order=14),
+            "support_img2img": ConfigField(type=bool, default=True, description="该模型是否支持图生图功能", order=15),
+            "auto_recall_delay": ConfigField(type=int, default=0, description="自动撤回延时", min=0, max=120, order=16),
+        },
+        "models.model2": {
+            "name": ConfigField(type=str, default="QWQ114514123/WAI-illustrious-SDXL-v16", description="模型显示名称"),
+            "base_url": ConfigField(type=str, default="https://api-inference.modelscope.cn/v1", description="API服务地址"),
+            "api_key": ConfigField(type=str, default="Bearer xxxxxxxxxxxxxxxxxxxxxx", description="API密钥", input_type="password"),
+            "format": ConfigField(type=str, default="modelscope", description="API格式"),
+            "model": ConfigField(type=str, default="QWQ114514123/WAI-illustrious-SDXL-v16", description="模型名称"),
+            "fixed_size_enabled": ConfigField(type=bool, default=False, description="是否固定图片尺寸"),
+            "default_size": ConfigField(type=str, default="1024x1024", description="默认图片尺寸"),
+            "seed": ConfigField(type=int, default=-1, description="随机种子"),
+            "guidance_scale": ConfigField(type=float, default=2.5, description="指导强度"),
+            "num_inference_steps": ConfigField(type=int, default=30, description="推理步数"),
+            "watermark": ConfigField(type=bool, default=False, description="是否添加水印"),
+            "custom_prompt_add": ConfigField(type=str, default="", description="正面提示词增强", input_type="textarea"),
+            "negative_prompt_add": ConfigField(type=str, default="low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs", description="负面提示词", input_type="textarea"),
+            "artist": ConfigField(type=str, default="", description="艺术家风格标签"),
+            "support_img2img": ConfigField(type=bool, default=True, description="该模型是否支持图生图功能"),
+            "auto_recall_delay": ConfigField(type=int, default=0, description="自动撤回延时"),
+        },
+        "models.model3": {
+            "name": ConfigField(type=str, default="ChenkinNoob/ChenkinNoob-XL-V0.2", description="模型显示名称"),
+            "base_url": ConfigField(type=str, default="https://api-inference.modelscope.cn/v1", description="API服务地址"),
+            "api_key": ConfigField(type=str, default="Bearer xxxxxxxxxxxxxxxxxxxxxx", description="API密钥", input_type="password"),
+            "format": ConfigField(type=str, default="modelscope", description="API格式"),
+            "model": ConfigField(type=str, default="ChenkinNoob/ChenkinNoob-XL-V0.2", description="模型名称"),
+            "fixed_size_enabled": ConfigField(type=bool, default=False, description="是否固定图片尺寸"),
+            "default_size": ConfigField(type=str, default="832x1216", description="默认图片尺寸"),
+            "seed": ConfigField(type=int, default=-1, description="随机种子"),
+            "guidance_scale": ConfigField(type=float, default=2.5, description="指导强度"),
+            "num_inference_steps": ConfigField(type=int, default=30, description="推理步数"),
+            "watermark": ConfigField(type=bool, default=False, description="是否添加水印"),
+            "custom_prompt_add": ConfigField(type=str, default="esthetic, excellent, medium resolution, newest", description="正面提示词增强", input_type="textarea"),
+            "negative_prompt_add": ConfigField(type=str, default="low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs", description="负面提示词", input_type="textarea"),
+            "artist": ConfigField(type=str, default="", description="艺术家风格标签"),
+            "support_img2img": ConfigField(type=bool, default=True, description="该模型是否支持图生图功能"),
+            "auto_recall_delay": ConfigField(type=int, default=0, description="自动撤回延时"),
+        },
+        "models.model4": {
+            "name": ConfigField(type=str, default="Sawata/Qwen-image-2512-Anime", description="模型显示名称"),
+            "base_url": ConfigField(type=str, default="https://api-inference.modelscope.cn/v1", description="API服务地址"),
+            "api_key": ConfigField(type=str, default="Bearer xxxxxxxxxxxxxxxxxxxxxx", description="API密钥", input_type="password"),
+            "format": ConfigField(type=str, default="modelscope", description="API格式"),
+            "model": ConfigField(type=str, default="Sawata/Qwen-image-2512-Anime", description="模型名称"),
+            "fixed_size_enabled": ConfigField(type=bool, default=False, description="是否固定图片尺寸"),
+            "default_size": ConfigField(type=str, default="832x1216", description="默认图片尺寸"),
+            "seed": ConfigField(type=int, default=-1, description="随机种子"),
+            "guidance_scale": ConfigField(type=float, default=2.5, description="指导强度"),
+            "num_inference_steps": ConfigField(type=int, default=30, description="推理步数"),
+            "watermark": ConfigField(type=bool, default=False, description="是否添加水印"),
+            "custom_prompt_add": ConfigField(type=str, default="", description="正面提示词增强", input_type="textarea"),
+            "negative_prompt_add": ConfigField(type=str, default="low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs", description="负面提示词", input_type="textarea"),
+            "artist": ConfigField(type=str, default="", description="艺术家风格标签"),
+            "support_img2img": ConfigField(type=bool, default=True, description="该模型是否支持图生图功能"),
+            "auto_recall_delay": ConfigField(type=int, default=0, description="自动撤回延时"),
+        },
+        "models.model5": {
+            "name": ConfigField(type=str, default="cancel13/liaocao", description="模型显示名称"),
+            "base_url": ConfigField(type=str, default="https://api-inference.modelscope.cn/v1", description="API服务地址"),
+            "api_key": ConfigField(type=str, default="Bearer xxxxxxxxxxxxxxxxxxxxxx", description="API密钥", input_type="password"),
+            "format": ConfigField(type=str, default="modelscope", description="API格式"),
+            "model": ConfigField(type=str, default="cancel13/liaocao", description="模型名称"),
+            "fixed_size_enabled": ConfigField(type=bool, default=False, description="是否固定图片尺寸"),
+            "default_size": ConfigField(type=str, default="832x1216", description="默认图片尺寸"),
+            "seed": ConfigField(type=int, default=-1, description="随机种子"),
+            "guidance_scale": ConfigField(type=float, default=2.5, description="指导强度"),
+            "num_inference_steps": ConfigField(type=int, default=30, description="推理步数"),
+            "watermark": ConfigField(type=bool, default=False, description="是否添加水印"),
+            "custom_prompt_add": ConfigField(type=str, default="", description="正面提示词增强", input_type="textarea"),
+            "negative_prompt_add": ConfigField(type=str, default="low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts", description="负面提示词", input_type="textarea"),
+            "artist": ConfigField(type=str, default="", description="艺术家风格标签"),
+            "support_img2img": ConfigField(type=bool, default=True, description="该模型是否支持图生图功能"),
+            "auto_recall_delay": ConfigField(type=int, default=0, description="自动撤回延时"),
+        },
+        "models.model6": {
+            "name": ConfigField(type=str, default="Remile/Qwen-Image-2512-FusionLoRA-ByRemile", description="模型显示名称"),
+            "base_url": ConfigField(type=str, default="https://api-inference.modelscope.cn/v1", description="API服务地址"),
+            "api_key": ConfigField(type=str, default="Bearer xxxxxxxxxxxxxxxxxxxxxx", description="API密钥", input_type="password"),
+            "format": ConfigField(type=str, default="modelscope", description="API格式"),
+            "model": ConfigField(type=str, default="Remile/Qwen-Image-2512-FusionLoRA-ByRemile", description="模型名称"),
+            "fixed_size_enabled": ConfigField(type=bool, default=False, description="是否固定图片尺寸"),
+            "default_size": ConfigField(type=str, default="832x1216", description="默认图片尺寸"),
+            "seed": ConfigField(type=int, default=-1, description="随机种子"),
+            "guidance_scale": ConfigField(type=float, default=2.5, description="指导强度"),
+            "num_inference_steps": ConfigField(type=int, default=30, description="推理步数"),
+            "watermark": ConfigField(type=bool, default=False, description="是否添加水印"),
+            "custom_prompt_add": ConfigField(type=str, default="", description="正面提示词增强", input_type="textarea"),
+            "negative_prompt_add": ConfigField(type=str, default="low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts", description="负面提示词", input_type="textarea"),
+            "artist": ConfigField(type=str, default="", description="艺术家风格标签"),
+            "support_img2img": ConfigField(type=bool, default=True, description="该模型是否支持图生图功能"),
+            "auto_recall_delay": ConfigField(type=int, default=0, description="自动撤回延时"),
+        },
+        "models.model7": {
+            "name": ConfigField(type=str, default="Qwen/Qwen-Image-Edit-2511", description="模型显示名称"),
+            "base_url": ConfigField(type=str, default="https://api-inference.modelscope.cn/v1", description="API服务地址"),
+            "api_key": ConfigField(type=str, default="Bearer xxxxxxxxxxxxxxxxxxxxxx", description="API密钥", input_type="password"),
+            "format": ConfigField(type=str, default="modelscope", description="API格式"),
+            "model": ConfigField(type=str, default="Qwen/Qwen-Image-Edit-2511", description="模型名称"),
+            "fixed_size_enabled": ConfigField(type=bool, default=False, description="是否固定图片尺寸"),
+            "default_size": ConfigField(type=str, default="1024x1024", description="默认图片尺寸"),
+            "seed": ConfigField(type=int, default=-1, description="随机种子"),
+            "guidance_scale": ConfigField(type=float, default=2.5, description="指导强度"),
+            "num_inference_steps": ConfigField(type=int, default=30, description="推理步数"),
+            "watermark": ConfigField(type=bool, default=False, description="是否添加水印"),
+            "custom_prompt_add": ConfigField(type=str, default="", description="正面提示词增强", input_type="textarea"),
+            "negative_prompt_add": ConfigField(type=str, default="low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs", description="负面提示词", input_type="textarea"),
+            "artist": ConfigField(type=str, default="", description="艺术家风格标签"),
+            "support_img2img": ConfigField(type=bool, default=True, description="该模型是否支持图生图功能"),
+            "auto_recall_delay": ConfigField(type=int, default=0, description="自动撤回延时"),
+        },
     }
 
     def __init__(self, plugin_dir: str):
@@ -596,6 +737,54 @@ class CustomPicPlugin(BasePlugin):
         
         # 检查并更新配置（如果需要），传入原始配置
         self._enhance_config_management(original_config)
+        
+        # 检查插件启用状态和定时自拍配置
+        from src.common.logger import get_logger as get_logger_func
+        plugin_logger = get_logger_func("custom_pic_plugin")
+        
+        plugin_enabled = self.get_config("plugin.enabled", False)
+        auto_selfie_enabled = self.get_config("auto_selfie.enabled", False)
+        
+        # 注册定时任务
+        if plugin_enabled and auto_selfie_enabled:
+            from src.manager.async_task_manager import async_task_manager
+            from .core.auto_selfie_task import AutoSelfieTask
+            
+            # 【关键修复】检查全局 abort_flag 状态并自动修复
+            # 如果之前的操作（如停止所有任务）导致 abort_flag 仍处于 set 状态，
+            # 新注册的任务将直接跳过执行。这里需要强制清除它。
+            if async_task_manager.abort_flag.is_set():
+                plugin_logger.warning("[CustomPicPlugin] 检测到全局任务中止标志异常，已自动重置")
+                async_task_manager.abort_flag.clear()
+            
+            self._register_auto_selfie_task()
+    
+    def _register_auto_selfie_task(self):
+        """注册定时自拍任务"""
+        from src.common.logger import get_logger as get_logger_func
+        plugin_logger = get_logger_func("custom_pic_plugin")
+        
+        try:
+            from src.manager.async_task_manager import async_task_manager
+            from .core.auto_selfie_task import AutoSelfieTask
+            import asyncio
+
+            # 创建并注册任务
+            task = AutoSelfieTask(self)
+            
+            # 定义回调函数
+            def _on_task_added(t):
+                try:
+                    t.result()
+                    plugin_logger.info(f"[CustomPicPlugin] 定时自拍任务已成功注册")
+                except Exception as e:
+                    plugin_logger.error(f"[CustomPicPlugin] 定时自拍任务注册失败: {e}")
+
+            # 提交给事件循环
+            asyncio.create_task(async_task_manager.add_task(task, call_back=_on_task_added))
+            
+        except Exception as e:
+            plugin_logger.error(f"[CustomPicPlugin] 注册定时任务时发生错误: {e}")
     
     def _enhance_config_management(self, original_config=None):
         """增强配置管理：备份、版本检查、智能合并
