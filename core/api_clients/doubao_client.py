@@ -1,5 +1,5 @@
 """豆包（火山引擎）API客户端"""
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 
 from .base_client import BaseApiClient, logger
 
@@ -14,8 +14,8 @@ class DoubaoClient(BaseApiClient):
         prompt: str,
         model_config: Dict[str, Any],
         size: str,
-        strength: float = None,
-        input_image_base64: str = None
+        strength: Optional[float] = None,
+        input_image_base64: Optional[str] = None
     ) -> Tuple[bool, str]:
         """发送豆包格式的HTTP请求生成图片"""
         try:

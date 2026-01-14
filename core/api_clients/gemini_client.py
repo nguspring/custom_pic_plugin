@@ -17,8 +17,8 @@ class GeminiClient(BaseApiClient):
         prompt: str,
         model_config: Dict[str, Any],
         size: str,
-        strength: float = None,
-        input_image_base64: str = None
+        strength: Optional[float] = None,
+        input_image_base64: Optional[str] = None
     ) -> Tuple[bool, str]:
         """发送Gemini格式的HTTP请求生成图片"""
         try:
@@ -148,7 +148,7 @@ class GeminiClient(BaseApiClient):
             logger.error(f"{self.log_prefix} (Gemini) 请求异常: {e!r}", exc_info=True)
             return False, f"请求失败: {str(e)}"
 
-    def _build_gemini_image_config(self, model_name: str, model_config: Dict[str, Any], llm_size: str = None) -> Optional[Dict[str, str]]:
+    def _build_gemini_image_config(self, model_name: str, model_config: Dict[str, Any], llm_size: Optional[str] = None) -> Optional[Dict[str, str]]:
         """构建 Gemini 图片配置"""
         fixed_size_enabled = model_config.get("fixed_size_enabled", False)
         default_size = model_config.get("default_size", "").strip()

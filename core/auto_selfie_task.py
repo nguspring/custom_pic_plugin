@@ -159,33 +159,56 @@ class AutoSelfieTask(AsyncTask):
             interval_minutes = self.plugin.get_config("auto_selfie.interval_minutes", 60)
             interval_seconds = interval_minutes * 60
 
-            # 获取白名单配置
-            allowed_chat_ids = self.plugin.get_config("auto_selfie.allowed_chat_ids", [])
+            # 获取名单配置
+            list_mode = self.plugin.get_config("auto_selfie.list_mode", "whitelist")
+            chat_id_list = self.plugin.get_config("auto_selfie.chat_id_list", [])
+            
+            # 兼容旧配置：如果新列表为空但旧白名单有值，则读取旧白名单
+            if not chat_id_list:
+                old_allowed = self.plugin.get_config("auto_selfie.allowed_chat_ids", [])
+                if isinstance(old_allowed, list) and old_allowed:
+                    chat_id_list = old_allowed
+
             # 确保是列表
-            if not isinstance(allowed_chat_ids, list):
-                allowed_chat_ids = []
+            if not isinstance(chat_id_list, list):
+                chat_id_list = []
             
             for stream in streams:
                 stream_id = stream.stream_id
                 
-                # 白名单检查逻辑
-                if allowed_chat_ids:
-                    readable_ids = self._get_readable_ids(stream)
-                    is_allowed = False
-                    
-                    if stream_id in allowed_chat_ids:
+                is_allowed = False
+                in_list = False
+                
+                # 优化：如果列表为空，直接根据模式判断
+                if not chat_id_list:
+                    if list_mode == "blacklist":
                         is_allowed = True
-                    
-                    if not is_allowed:
+                    # whitelist 默认为 False (留空则默认不允许)
+                else:
+                    # 列表不为空，需检查匹配
+                    readable_ids = self._get_readable_ids(stream)
+                    if stream_id in chat_id_list:
+                        in_list = True
+                    else:
                         for rid in readable_ids:
-                            if rid in allowed_chat_ids:
-                                is_allowed = True
-                                logger.info(f"[AutoSelfie] 流 {stream_id} 通过可读 ID {rid} 命中白名单")
+                            if rid in chat_id_list:
+                                in_list = True
                                 break
                     
-                    if not is_allowed:
-                        # logger.debug(f"[AutoSelfie] 流 {stream_id} (可读ID: {readable_ids}) 不在白名单中，跳过")
-                        continue
+                    if list_mode == "whitelist":
+                        # 白名单模式：在列表中才允许
+                        if in_list:
+                            is_allowed = True
+                            logger.info(f"[AutoSelfie] 流 {stream_id} 命中白名单，允许发送")
+                    else:
+                        # 黑名单模式：不在列表中才允许
+                        if not in_list:
+                            is_allowed = True
+                        else:
+                            logger.info(f"[AutoSelfie] 流 {stream_id} 命中黑名单，禁止发送")
+                
+                if not is_allowed:
+                    continue
 
                 # 检查该流是否启用插件
                 if not self._is_plugin_enabled_for_stream(stream_id):

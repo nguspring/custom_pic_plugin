@@ -3,7 +3,7 @@ import json
 import time
 import base64
 import requests
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 
 from .base_client import BaseApiClient, logger
 
@@ -18,8 +18,8 @@ class ModelscopeClient(BaseApiClient):
         prompt: str,
         model_config: Dict[str, Any],
         size: str,
-        strength: float = None,
-        input_image_base64: str = None
+        strength: Optional[float] = None,
+        input_image_base64: Optional[str] = None
     ) -> Tuple[bool, str]:
         """发送魔搭格式的HTTP请求生成图片"""
         try:

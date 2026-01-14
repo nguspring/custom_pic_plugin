@@ -6,7 +6,7 @@ API格式：GET请求，参数通过URL传递
 """
 import base64
 import requests
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 from urllib.parse import urlencode
 
 from .base_client import BaseApiClient, logger
@@ -22,8 +22,8 @@ class ShatangyunClient(BaseApiClient):
         prompt: str,
         model_config: Dict[str, Any],
         size: str,
-        strength: float = None,
-        input_image_base64: str = None
+        strength: Optional[float] = None,
+        input_image_base64: Optional[str] = None
     ) -> Tuple[bool, str]:
         """发送砂糖云格式的HTTP请求生成图片"""
         try:

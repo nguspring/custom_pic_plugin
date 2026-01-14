@@ -21,8 +21,8 @@ class ZaiClient(BaseApiClient):
         prompt: str,
         model_config: Dict[str, Any],
         size: str,
-        strength: float = None,
-        input_image_base64: str = None
+        strength: Optional[float] = None,
+        input_image_base64: Optional[str] = None
     ) -> Tuple[bool, str]:
         """发送 Zai chat/completions 请求"""
         base_url = model_config.get("base_url", "https://zai.is/api").rstrip('/')

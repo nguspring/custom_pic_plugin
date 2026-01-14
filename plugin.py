@@ -23,7 +23,7 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name: str = "custom_pic_plugin"  # type: ignore[assignment]
-    plugin_version: str = "3.4.1"
+    plugin_version: str = "3.4.2"
     plugin_author: str = "Ptrel，Rabbit，saberlights Kiuon，NGU-SprinG"
     enable_plugin: bool = True  # type: ignore[assignment]
     dependencies: List[str] = []  # type: ignore[assignment]
@@ -175,7 +175,7 @@ class CustomPicPlugin(BasePlugin):
             ),
             "config_version": ConfigField(
                 type=str,
-                default="3.4.0",
+                default="3.4.1",
                 description="插件配置版本号",
                 disabled=True,
                 order=2
@@ -550,14 +550,23 @@ class CustomPicPlugin(BasePlugin):
                 depends_value=True,
                 order=11
             ),
-            "allowed_chat_ids": ConfigField(
-                type=list,
-                default=[],
-                description="允许发送定时自拍的聊天ID白名单。留空则允许所有聊天流（前提是该流已启用插件）",
-                placeholder="[\"qq:123456:private\", \"qq:654321:group\"]",
+            "list_mode": ConfigField(
+                type=str,
+                default="whitelist",
+                description="名单模式。whitelist=白名单（仅允许列表中的ID，空列表代表不允许任何人），blacklist=黑名单（排除列表中的ID，空列表代表允许所有人）",
+                choices=["whitelist", "blacklist"],
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
                 order=12
+            ),
+            "chat_id_list": ConfigField(
+                type=list,
+                default=[],
+                description="聊天ID列表。根据模式决定是允许还是禁止。支持格式：qq:123456:private 或 qq:123456:group",
+                placeholder="[\"qq:123456:private\", \"qq:654321:group\"]",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=13
             )
         },
         "prompt_optimizer": {
@@ -772,6 +781,9 @@ class CustomPicPlugin(BasePlugin):
         
         # 初始化增强配置管理器
         self.enhanced_config_manager = EnhancedConfigManager(plugin_dir, self.config_file_name)
+        
+        # 注入插件实例到 Command 类，以便 Command 可以访问配置管理器保存配置
+        PicConfigCommand.plugin_instance = self
         
         # 检查并更新配置（如果需要），传入原始配置
         self._enhance_config_management(original_config)
