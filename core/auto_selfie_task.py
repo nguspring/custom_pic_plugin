@@ -8,11 +8,13 @@ from typing import Optional, Tuple, Dict, Any, List
 
 from src.manager.async_task_manager import AsyncTask
 from src.common.logger import get_logger
-from src.plugin_system.apis import send_api, generator_api
+from src.plugin_system.apis import send_api, generator_api, llm_api
 from src.plugin_system.apis.chat_api import get_chat_manager
 from src.chat.message_receive.chat_stream import ChatStream
 # 导入数据模型
 from src.common.data_models.database_data_model import DatabaseMessages
+# 导入 bot 名称配置
+from src.config.config import global_config
 
 logger = get_logger("auto_selfie_task")
 
@@ -245,6 +247,62 @@ class AutoSelfieTask(AsyncTask):
             logger.warning(f"[AutoSelfie] 构建可读 ID 失败: {e}")
         return readable_ids
 
+    def _parse_time_scenes(self) -> Dict[str, str]:
+        """解析 time_scenes 配置为字典
+        
+        配置格式: ["HH:MM|场景描述", ...]
+        返回格式: {"HH:MM": "场景描述", ...}
+        
+        Returns:
+            Dict[str, str]: 时间点到场景描述的映射
+        """
+        time_scenes_config = self.plugin.get_config("auto_selfie.time_scenes", [])
+        result: Dict[str, str] = {}
+        
+        if not isinstance(time_scenes_config, list):
+            logger.warning(f"{self.log_prefix} time_scenes 配置格式无效，应为列表类型")
+            return result
+        
+        for item in time_scenes_config:
+            if not isinstance(item, str):
+                logger.warning(f"{self.log_prefix} time_scenes 配置项格式无效，应为字符串: {item}")
+                continue
+            
+            if "|" not in item:
+                logger.warning(f"{self.log_prefix} time_scenes 配置项缺少分隔符 '|': {item}")
+                continue
+            
+            try:
+                time_str, scene = item.split("|", 1)
+                time_str = time_str.strip()
+                scene = scene.strip()
+                
+                # 验证时间格式 (HH:MM)
+                if ":" not in time_str or len(time_str) != 5:
+                    logger.warning(f"{self.log_prefix} time_scenes 时间格式无效，应为 HH:MM: {time_str}")
+                    continue
+                
+                # 验证时间合法性
+                hour, minute = map(int, time_str.split(":"))
+                if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                    logger.warning(f"{self.log_prefix} time_scenes 时间值超出范围: {time_str}")
+                    continue
+                
+                if scene:
+                    result[time_str] = scene
+                    logger.debug(f"{self.log_prefix} 已解析时间场景: {time_str} -> {scene}")
+                else:
+                    logger.warning(f"{self.log_prefix} time_scenes 场景描述为空: {item}")
+                    
+            except ValueError as e:
+                logger.warning(f"{self.log_prefix} time_scenes 配置项解析失败: {item}, 错误: {e}")
+                continue
+        
+        if result:
+            logger.info(f"{self.log_prefix} 已加载 {len(result)} 个自定义时间场景")
+        
+        return result
+
     async def _process_times_mode(self, stream, target_times: List[str], current_time_obj: datetime, current_date_str: str):
         """处理指定时间点模式"""
         stream_id = stream.stream_id
@@ -252,6 +310,9 @@ class AutoSelfieTask(AsyncTask):
         # 确保该流的时间记录存在
         if stream_id not in self.last_send_dates:
             self.last_send_dates[stream_id] = {}
+        
+        # 解析自定义时间场景配置
+        time_scenes = self._parse_time_scenes()
             
         current_hm = current_time_obj.strftime("%H:%M")
         
@@ -280,8 +341,21 @@ class AutoSelfieTask(AsyncTask):
                 if diff < 120:
                     logger.info(f"[AutoSelfie] 流 {stream_id} 触发时间点 {t_str} (误差 {diff:.1f}s)，准备发送自拍")
                     
-                    # 发送
-                    await self._trigger_selfie_for_stream(stream)
+                    # 检查是否有自定义场景描述
+                    scene_description: Optional[str] = None
+                    if t_str in time_scenes:
+                        scene_description = time_scenes[t_str]
+                        logger.info(f"{self.log_prefix} 使用自定义时间场景: {t_str} -> {scene_description}")
+                    else:
+                        # 没有自定义场景时，检查是否启用 LLM 智能场景判断
+                        enable_llm_scene = self.plugin.get_config("auto_selfie.enable_llm_scene", False)
+                        if enable_llm_scene:
+                            scene_description = await self._generate_llm_scene()
+                            if scene_description:
+                                logger.info(f"{self.log_prefix} Times模式: LLM 生成场景描述: {scene_description}")
+                    
+                    # 发送（带场景描述）
+                    await self._trigger_selfie_for_stream(stream, description=scene_description)
                     
                     # 更新状态
                     self.last_send_dates[stream_id][t_str] = current_date_str
@@ -312,7 +386,16 @@ class AutoSelfieTask(AsyncTask):
             
             if current_timestamp - last_time >= interval_seconds + random_offset:
                 logger.info(f"[AutoSelfie] 流 {stream_id} 触发时间到 (Interval)，准备发送自拍")
-                await self._trigger_selfie_for_stream(stream)
+                
+                # [新增] 检查是否启用 LLM 智能场景判断
+                scene_description: Optional[str] = None
+                enable_llm_scene = self.plugin.get_config("auto_selfie.enable_llm_scene", False)
+                if enable_llm_scene:
+                    scene_description = await self._generate_llm_scene()
+                    if scene_description:
+                        logger.info(f"{self.log_prefix} LLM 生成场景描述: {scene_description}")
+                
+                await self._trigger_selfie_for_stream(stream, description=scene_description)
                 self.last_send_time[stream_id] = current_timestamp
                 self._save_state()
 
@@ -350,8 +433,108 @@ class AutoSelfieTask(AsyncTask):
         except ImportError:
             return self.plugin.get_config("plugin.enabled", True)
 
-    async def _trigger_selfie_for_stream(self, stream_or_id):
-        """为指定流触发自拍发送"""
+    async def _generate_llm_scene(self) -> Optional[str]:
+        """使用 LLM 根据当前时间生成自拍场景描述
+        
+        Returns:
+            Optional[str]: 生成的场景描述，失败时返回 None
+        """
+        try:
+            # 获取当前时间信息
+            now = datetime.now()
+            time_str = now.strftime("%H:%M")
+            date_str = now.strftime("%Y-%m-%d")
+            
+            # 获取星期几（中英文）
+            weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            weekday = weekday_names[now.weekday()]
+            
+            # 获取 bot 名称（使用 nickname 属性）
+            try:
+                bot_name = global_config.bot.nickname
+                if not bot_name:
+                    bot_name = "MaiBot"
+            except Exception:
+                bot_name = "MaiBot"
+            
+            # 构建提示词
+            prompt = f"""Current time: {time_str} on {date_str} ({weekday}).
+Character: {bot_name}.
+Task: Describe a selfie scene for {bot_name} at this moment.
+Requirements:
+1. Describe the location, outfit, and action suitable for the current time.
+2. Keep it concise, suitable for Stable Diffusion prompts (English).
+3. Format: "location, outfit, action".
+4. No explanations, just the prompt tags.
+
+Example output for morning: "cozy bedroom, pajamas, stretching, morning sunlight"
+Example output for afternoon: "cafe, casual dress, holding coffee cup, relaxed smile"
+Example output for evening: "home office, casual wear, looking at camera, soft lamp light"
+
+Now generate for current time ({time_str}):"""
+
+            # 获取模型配置
+            scene_llm_model = self.plugin.get_config("auto_selfie.scene_llm_model", "")
+            
+            # 获取可用模型
+            available_models = llm_api.get_available_models()
+            
+            if not available_models:
+                logger.warning(f"{self.log_prefix} 无可用的 LLM 模型，无法生成场景")
+                return None
+            
+            # 选择模型配置
+            model_config = None
+            if scene_llm_model and scene_llm_model in available_models:
+                model_config = available_models[scene_llm_model]
+                logger.debug(f"{self.log_prefix} 使用配置的 LLM 模型: {scene_llm_model}")
+            else:
+                # 使用默认模型（优先选择 normal_chat 或第一个可用模型）
+                if "normal_chat" in available_models:
+                    model_config = available_models["normal_chat"]
+                    logger.debug(f"{self.log_prefix} 使用默认 LLM 模型: normal_chat")
+                else:
+                    # 使用第一个可用模型
+                    first_model_name = next(iter(available_models))
+                    model_config = available_models[first_model_name]
+                    logger.debug(f"{self.log_prefix} 使用第一个可用 LLM 模型: {first_model_name}")
+            
+            if not model_config:
+                logger.warning(f"{self.log_prefix} 未找到可用的 LLM 模型配置")
+                return None
+            
+            # 调用 LLM 生成场景描述
+            success, content, reasoning, model_name = await llm_api.generate_with_model(
+                prompt=prompt,
+                model_config=model_config,
+                request_type="plugin.auto_selfie.scene_generate",
+                temperature=0.8,  # 稍高的温度以增加创意性
+                max_tokens=100    # 场景描述不需要太长
+            )
+            
+            if success and content:
+                # 清理返回结果（去除引号、换行等）
+                scene = content.strip().strip('"').strip("'").strip()
+                # 移除可能的前缀解释
+                if ":" in scene and len(scene.split(":")[0]) < 20:
+                    scene = scene.split(":", 1)[-1].strip()
+                logger.info(f"{self.log_prefix} LLM 场景生成成功 (使用模型: {model_name}): {scene}")
+                return scene
+            else:
+                logger.warning(f"{self.log_prefix} LLM 场景生成失败: {content}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"{self.log_prefix} LLM 场景生成出错: {e}", exc_info=True)
+            return None
+
+    async def _trigger_selfie_for_stream(self, stream_or_id, *, description: Optional[str] = None):
+        """为指定流触发自拍发送
+        
+        Args:
+            stream_or_id: ChatStream 对象或 stream_id 字符串
+            description: 可选的场景描述，用于替代默认的 "a casual selfie"
+        """
         
         # 兼容旧版本传入 stream_id 的情况
         if isinstance(stream_or_id, str):
@@ -393,17 +576,63 @@ class AutoSelfieTask(AsyncTask):
             # 2. 生成询问语
             ask_message = ""
             if use_replyer:
-                # 使用 Replyer 生成自然的询问语
-                prompt = "你刚刚拍了一张自拍发给对方。请生成一句简短、俏皮的询问语，问对方觉得好看吗，或者分享你此刻的心情。不要包含图片描述，只要询问语。50字以内。直接输出这句话，不要任何解释，不要说'好的'，不要给选项。"
-                # 调用 generator_api 生成
-                response = await generator_api.generate_response_custom(
-                    chat_stream=chat_stream, # 优先使用 chat_stream
-                    prompt=prompt,
-                    # request_type="auto_selfie" # 移除非标准参数
-                )
-                ask_message = response if response else "你看这张照片怎么样？"
-                # 清理可能残留的引号
-                ask_message = ask_message.strip('"').strip("'")
+                # 获取 ask_model_id 配置
+                ask_model_id = self.plugin.get_config("auto_selfie.ask_model_id", "")
+                
+                # 构建优化后的 Prompt，包含场景描述
+                if description:
+                    ask_prompt = f"""你刚刚拍了一张自拍，画面内容是：{description}。
+请生成一句简短、俏皮的询问语，询问朋友们觉得这张照片怎么样。
+要求：
+1. 语气自然，符合年轻人社交风格
+2. 可以提及照片中的场景或动作
+3. 不超过30个字
+4. 直接输出这句话，不要任何解释或前缀"""
+                    logger.debug(f"{self.log_prefix} 询问语 Prompt 包含场景描述: {description}")
+                else:
+                    ask_prompt = "你刚刚拍了一张自拍发给对方。请生成一句简短、俏皮的询问语，问对方觉得好看吗，或者分享你此刻的心情。不要包含图片描述，只要询问语。30字以内。直接输出这句话，不要任何解释，不要说'好的'，不要给选项。"
+                
+                # 获取可用模型列表
+                available_models = llm_api.get_available_models()
+                
+                # 查找指定模型配置
+                model_config = None
+                if ask_model_id and available_models:
+                    if ask_model_id in available_models:
+                        model_config = available_models[ask_model_id]
+                        logger.info(f"{self.log_prefix} 询问语生成使用配置的模型: {ask_model_id}")
+                    else:
+                        logger.warning(f"{self.log_prefix} 配置的询问语模型 '{ask_model_id}' 不存在，使用默认模型")
+                
+                # 如果没有指定模型或未找到，使用默认模型
+                if model_config is None and available_models:
+                    if "normal_chat" in available_models:
+                        model_config = available_models["normal_chat"]
+                        logger.debug(f"{self.log_prefix} 询问语生成使用默认模型: normal_chat")
+                    else:
+                        first_model_name = next(iter(available_models))
+                        model_config = available_models[first_model_name]
+                        logger.debug(f"{self.log_prefix} 询问语生成使用第一个可用模型: {first_model_name}")
+                
+                if model_config:
+                    # 使用 llm_api 生成询问语
+                    success, content, reasoning, model_name = await llm_api.generate_with_model(
+                        prompt=ask_prompt,
+                        model_config=model_config,
+                        request_type="plugin.auto_selfie.ask_generate",
+                        temperature=0.8,
+                        max_tokens=50
+                    )
+                    
+                    if success and content:
+                        ask_message = content.strip().strip('"').strip("'").strip()
+                        logger.info(f"{self.log_prefix} 询问语生成成功 (模型: {model_name}): {ask_message}")
+                    else:
+                        logger.warning(f"{self.log_prefix} 询问语生成失败，使用默认询问语")
+                        ask_message = "你看这张照片怎么样？"
+                else:
+                    logger.warning(f"{self.log_prefix} 无可用的 LLM 模型，使用默认询问语")
+                    ask_message = "你看这张照片怎么样？"
             else:
                 # 使用固定模板或配置
                 config_ask = self.plugin.get_config("auto_selfie.ask_message", "")
@@ -493,8 +722,27 @@ class AutoSelfieTask(AsyncTask):
             
             # 4. 执行生成
             # (1) 生成提示词
+            # 如果传入了 description（来自 LLM 场景生成），则使用它；否则使用默认值
+            if description:
+                base_description = description
+                logger.info(f"{self.log_prefix} 使用 LLM 生成的场景描述: {base_description}")
+            else:
+                base_description = "a casual selfie"
+            
+            # 尝试优化提示词（仅在没有 LLM 场景时优化，避免重复处理）
+            optimizer_enabled = self.plugin.get_config("prompt_optimizer.enabled", True)
+            if optimizer_enabled and not description:
+                try:
+                    from .prompt_optimizer import optimize_prompt
+                    success, optimized_prompt = await optimize_prompt(base_description, self.log_prefix)
+                    if success:
+                        base_description = optimized_prompt
+                        logger.info(f"{self.log_prefix} 定时自拍提示词优化成功: {base_description}")
+                except Exception as e:
+                    logger.warning(f"{self.log_prefix} 定时自拍提示词优化失败: {e}")
+
             prompt = action_instance._process_selfie_prompt(
-                description="a casual selfie", # 基础描述
+                description=base_description, # 使用优化后的描述
                 selfie_style=style,
                 free_hand_action="",
                 model_id=model_id

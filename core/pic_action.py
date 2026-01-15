@@ -274,8 +274,29 @@ class CustomPicAction(BaseAction):
             description = self._process_selfie_prompt(description, selfie_style, free_hand_action, model_id)
             logger.info(f"{self.log_prefix} 自拍模式处理后的提示词: {description}") # 显示所有提示词
 
-            # 👇 下面这几行是新增的：读取自拍专用负面提示词 👇
+            # 👇 读取自拍专用负面提示词（从配置读取基础负面词） 👇
             selfie_negative_prompt = str(self.get_config("selfie.negative_prompt", "")).strip()
+            
+            # 👇 【修复双手问题】standard模式专用负面提示词，防止生成两只手 👇
+            if selfie_style == "standard":
+                # 定义防止双手/双臂的负面提示词
+                standard_anti_dual_hands = (
+                    "two phones, camera in both hands, holding phone with both hands, "
+                    "extra hands, extra arms, 3 hands, 4 hands, multiple hands, "
+                    "both hands holding phone, two hands on phone, "
+                    "phone in frame, visible phone in hand, phone screen visible, "
+                    "floating phone, phone reflection, "
+                    "both hands visible, two hands making gesture, "
+                    "holding device with two hands, dual arm selfie, "
+                    "symmetrical hands, mirrored hands"
+                )
+                # 合并：用户配置的负面词 + standard模式专用防双手词
+                if selfie_negative_prompt:
+                    selfie_negative_prompt = f"{selfie_negative_prompt}, {standard_anti_dual_hands}"
+                else:
+                    selfie_negative_prompt = standard_anti_dual_hands
+                logger.info(f"{self.log_prefix} 已应用standard模式防双手负面提示词")
+            # 👆 【修复双手问题】结束 👆
 
             # 检查是否配置了参考图片
             reference_image = self._get_selfie_reference_image()
@@ -502,8 +523,19 @@ class CustomPicAction(BaseAction):
             default_mirror = "mirror selfie, reflection in mirror, holding phone in hand, phone visible, arm slightly bent, looking at mirror, indoor scene, soft lighting, high quality"
             selfie_scene = str(self.get_config("selfie.scene_mirror", default_mirror))
         else:
-            # 前置自拍：强调手臂伸直、眼神交流、半身构图（确保手部入镜）
-            default_standard = "selfie, front camera view, (cowboy shot or full body shot or upper body), looking at camera, slight high angle selfie"
+            # 前置自拍：强调单手持机在画面外，只有自由手可见
+            # 修复：解决"画面同时出现两只手"的问题
+            default_standard = (
+                "selfie, front camera view, POV selfie, "
+                "(one hand holding smartphone out of frame:1.5), "
+                "(holding phone with extended arm outside frame:1.4), "
+                "(phone held by hand outside visible area:1.3), "
+                "(front facing selfie camera angle:1.3), "
+                "(single visible hand only:1.4), "
+                "(arm holding phone cropped out:1.3), "
+                "looking at camera, slight high angle selfie, "
+                "upper body shot, cowboy shot"
+            )
             selfie_scene = str(self.get_config("selfie.scene_standard", default_standard))
 
         # 4. 智能手部动作库（比原版更多的动作！）
@@ -618,10 +650,19 @@ class CustomPicAction(BaseAction):
         else:
             hand_action = random.choice(hand_actions)
         
-        # 👇 新增：在standard模式下，强制补充"另一只手是空的"的描述 👇
+        # 👇 修复双手问题：在standard模式下，明确描述自由手动作，强调持机手在画面外 👇
         if selfie_style == "standard":
-            hand_action += ", (free hand making gesture:1.5), (one hand holding smartphone out of frame:1.6), (arm extended towards camera:1.5), (arm visible in corner:1.5), (upper body only:1.4), (close-up:1.3), (no full body:1.2)"
-        # 👆 新增结束 👇
+            # 构建自由手动作描述（明确是"可见的那只手"在做动作）
+            hand_action = (
+                f"(visible free hand {hand_action}:1.4), "  # 自由手在做的动作
+                "(only one hand visible in frame:1.5), "     # 画面中只能看到一只手
+                "(single hand gesture:1.4), "                # 单手手势
+                "(other hand holding phone outside frame:1.6), "  # 另一只手在画面外持机
+                "(arm holding device cropped out of view:1.4), "  # 持机的手臂被裁切出画面
+                "(selfie POV with one arm extended:1.3), "   # 自拍视角，一只手臂伸出
+                "(front camera perspective:1.2)"              # 前置摄像头视角
+            )
+        # 👆 修复双手问题结束 👆
 
         # 6. 组装完整提示词
         prompt_parts = [forced_subject]

@@ -23,7 +23,7 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name: str = "custom_pic_plugin"  # type: ignore[assignment]
-    plugin_version: str = "3.4.1"
+    plugin_version: str = "3.4.2"
     plugin_author: str = "Ptrel，Rabbit，saberlights Kiuon，nguspring"
     enable_plugin: bool = True  # type: ignore[assignment]
     dependencies: List[str] = []  # type: ignore[assignment]
@@ -175,7 +175,7 @@ class CustomPicPlugin(BasePlugin):
             ),
             "config_version": ConfigField(
                 type=str,
-                default="3.4.1",
+                default="3.4.2",
                 description="插件配置版本号",
                 disabled=True,
                 order=2
@@ -567,6 +567,45 @@ class CustomPicPlugin(BasePlugin):
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
                 order=13
+            ),
+            # [新增] 是否启用 LLM 智能场景判断 (Interval 模式专用)
+            "enable_llm_scene": ConfigField(
+                type=bool,
+                default=False,
+                description="是否启用 LLM 智能场景判断。开启后，Interval 模式会根据当前时间让 LLM 构思合适的自拍场景（地点、动作、着装），不再单纯随机。",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=14
+            ),
+            # [新增] 智能场景判断使用的模型 (留空则使用默认回复模型)
+            "scene_llm_model": ConfigField(
+                type=str,
+                default="",
+                description="用于智能场景判断的 LLM 模型 ID。留空则使用系统默认模型。",
+                placeholder="model1",
+                depends_on="auto_selfie.enable_llm_scene",
+                depends_value=True,
+                order=15
+            ),
+            # [新增] Times 模式的自定义场景配置
+            "time_scenes": ConfigField(
+                type=list,
+                default=["08:00|morning coffee, cafe, sunlight", "23:00|pajamas, bed, sleepy, night light"],
+                description="指定时间点的自定义场景。格式：'HH:MM|场景描述'。仅在 schedule_mode='times' 时生效，优先于随机场景。",
+                placeholder="[\"08:00|morning coffee\", \"22:00|reading book\"]",
+                depends_on="auto_selfie.schedule_mode",
+                depends_value="times",
+                order=16
+            ),
+            # [新增] 询问语生成的模型 ID
+            "ask_model_id": ConfigField(
+                type=str,
+                default="",
+                description="用于生成自拍询问语的模型 ID。留空则使用系统默认模型。",
+                placeholder="model1",
+                depends_on="auto_selfie.use_replyer_for_ask",
+                depends_value=True,
+                order=17
             )
         },
         "prompt_optimizer": {
