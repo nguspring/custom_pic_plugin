@@ -18,7 +18,7 @@ from .image_search_adapter import ImageSearchAdapter
 
 logger = get_logger("pic_action")
 
-class CustomPicAction(BaseAction):
+class Custom_Pic_Action(BaseAction):
     """统一的图片生成动作，智能检测文生图或图生图"""
 
     # 激活设置
@@ -274,38 +274,8 @@ class CustomPicAction(BaseAction):
             description = self._process_selfie_prompt(description, selfie_style, free_hand_action, model_id)
             logger.info(f"{self.log_prefix} 自拍模式处理后的提示词: {description}") # 显示所有提示词
 
-            # 👇 读取自拍专用负面提示词（从配置读取基础负面词） 👇
+            # 👇 下面这几行是新增的：读取自拍专用负面提示词 👇
             selfie_negative_prompt = str(self.get_config("selfie.negative_prompt", "")).strip()
-            
-            # 👇 【修复双手问题】standard模式专用负面提示词，防止生成两只手 👇
-            if selfie_style == "standard":
-                # 定义防止双手/双臂的负面提示词
-                standard_anti_dual_hands = (
-                    # 防止双手持机
-                    "two phones, camera in both hands, holding phone with both hands, "
-                    "extra hands, extra arms, 3 hands, 4 hands, multiple hands, "
-                    "both hands holding phone, two hands on phone, "
-                    # 防止手机出现在画面中
-                    "phone in frame, visible phone in hand, phone screen visible, "
-                    "floating phone, phone reflection, smartphone visible, "
-                    # 防止两只手都出现
-                    "both hands visible, two hands making gesture, "
-                    "holding device with two hands, dual arm selfie, "
-                    "symmetrical hands, mirrored hands, "
-                    # 防止持机手边缘可见（新增）
-                    "hand at edge of frame, hand entering frame from side, "
-                    "partial hand visible at edge, hand reaching into frame, "
-                    "fingers at edge of frame, palm at edge, "
-                    "hand extending from outside frame, arm entering frame, "
-                    "hand peeking from edge, visible phone holding hand"
-                )
-                # 合并：用户配置的负面词 + standard模式专用防双手词
-                if selfie_negative_prompt:
-                    selfie_negative_prompt = f"{selfie_negative_prompt}, {standard_anti_dual_hands}"
-                else:
-                    selfie_negative_prompt = standard_anti_dual_hands
-                logger.info(f"{self.log_prefix} 已应用standard模式防双手负面提示词")
-            # 👆 【修复双手问题】结束 👆
 
             # 检查是否配置了参考图片
             reference_image = self._get_selfie_reference_image()
@@ -529,19 +499,10 @@ class CustomPicAction(BaseAction):
         # 3. 定义自拍风格特定的场景设置（通用版：适用于真实风格和二次元风格）
         if selfie_style == "mirror":
             # 对镜自拍：强调倒影、手机在手、室内场景
-            default_mirror = "mirror selfie, reflection in mirror, holding phone in hand, phone visible, arm slightly bent, looking at mirror, indoor scene, soft lighting, high quality"
-            selfie_scene = str(self.get_config("selfie.scene_mirror", default_mirror))
+            selfie_scene = "mirror selfie, reflection in mirror, holding phone in hand, phone visible, arm slightly bent, looking at mirror, indoor scene, soft lighting, high quality"
         else:
-            # 前置自拍：强调场景和视角（手部约束由 hand_action 处理）
-            # 精简版：移除与 hand_action 重复的手部描述
-            default_standard = (
-                "selfie, front camera view, POV selfie, "
-                "(front facing selfie camera angle:1.3), "
-                "looking at camera, slight high angle selfie, "
-                "upper body shot, cowboy shot, "
-                "(centered composition:1.2)"
-            )
-            selfie_scene = str(self.get_config("selfie.scene_standard", default_standard))
+            # 前置自拍：强调手臂伸直、眼神交流、半身构图（确保手部入镜）
+            selfie_scene = "selfie, front camera view, (cowboy shot or full body shot or upper body), looking at camera, slight high angle selfie"
 
         # 4. 智能手部动作库（比原版更多的动作！）
         hand_actions = [
@@ -655,22 +616,10 @@ class CustomPicAction(BaseAction):
         else:
             hand_action = random.choice(hand_actions)
         
-        # 👇 修复双手问题：在standard模式下，明确描述自由手动作，强调持机手完全不可见 👇
+        # 👇 新增：在standard模式下，强制补充"另一只手是空的"的描述 👇
         if selfie_style == "standard":
-            # 构建自由手动作描述（明确是"可见的那只手"在做动作）
-            hand_action = (
-                f"(visible free hand {hand_action}:1.4), "  # 自由手在做的动作
-                "(only one hand visible in frame:1.6), "     # 画面中只能看到一只手（权重提高）
-                "(single hand gesture:1.4), "                # 单手手势
-                "(other hand completely outside frame:1.7), "  # 另一只手完全在画面外（权重提高）
-                "(phone holding hand not visible at all:1.6), "  # 持机手完全不可见（新增）
-                "(arm holding device fully cropped:1.5), "  # 持机手臂完全被裁切（新增）
-                "(no part of phone hand visible:1.5), "     # 持机手任何部分都不可见（新增）
-                "(selfie POV with one arm extended outside:1.4), "   # 自拍视角，手臂伸出画面外
-                "(front camera perspective:1.2), "           # 前置摄像头视角
-                "(subject centered in frame:1.3)"            # 人物居中构图（新增）
-            )
-        # 👆 修复双手问题结束 👆
+            hand_action += ", (free hand making gesture:1.5), (one hand holding smartphone out of frame:1.6), (arm extended towards camera:1.5), (arm visible in corner:1.5), (upper body only:1.4), (close-up:1.3), (no full body:1.2)"
+        # 👆 新增结束 👇
 
         # 6. 组装完整提示词
         prompt_parts = [forced_subject]
@@ -940,3 +889,4 @@ class CustomPicAction(BaseAction):
             cleaned_text = cleaned_text[:100]
             
         return cleaned_text
+
