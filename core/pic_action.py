@@ -4,6 +4,8 @@ import base64
 import os
 from typing import List, Tuple, Type, Optional, Dict, Any
 
+import aiohttp  # type: ignore[import-not-found]
+
 from src.plugin_system.base.base_action import BaseAction
 from src.plugin_system.base.component_types import ActionActivationType, ChatMode
 from src.common.logger import get_logger
@@ -206,26 +208,84 @@ class CustomPicAction(BaseAction):
                 
                 # 如果搜到了图片链接
                 if image_url:
-                    # 4. 读取配置里的视觉API信息
-                    v_api_key = str(self.get_config("search_reference.vision_api_key", ""))
-                    v_base_url = str(self.get_config("search_reference.vision_base_url", "https://api.openai.com/v1"))
-                    v_model = str(self.get_config("search_reference.vision_model", "gpt-4o"))
+                    features = ""
                     
-                    # 如果配置了API Key，就开始看图分析
+                    # 4. 检查用户是否配置了自定义视觉模型
+                    v_api_key = str(self.get_config("search_reference.vision_api_key", "")).strip()
+                    
                     if v_api_key:
+                        # 用户配置了自定义模型，使用 VisionAnalyzer
                         from .vision_analyzer import VisionAnalyzer
                         
-                        # 5. 实例化分析器
+                        v_base_url = str(self.get_config("search_reference.vision_base_url", "https://api.openai.com/v1"))
+                        v_model = str(self.get_config("search_reference.vision_model", "gpt-4o"))
+                        
+                        logger.info(f"{self.log_prefix} 使用用户自定义视觉模型: {v_model}")
                         analyzer = VisionAnalyzer(v_base_url, v_api_key, v_model)
-                        
-                        # 6. 让 AI 分析图片，提取特征（比如：red hair, white hat...）
                         features = await analyzer.analyze_image(image_url)
-                        
-                        # 7. 如果分析成功，就把特征拼接到用户的描述里
-                        if features:
-                            # 拼接格式：原描述, (提取的特征:1.3)
-                            # 1.3 是权重，表示让模型更重视这些特征
-                            description = f"{description}, ({features}:1.3)"
+                    else:
+                        # 默认使用 MaiBot 的 vlm 模型（视觉语言模型）
+                        logger.info(f"{self.log_prefix} 使用 MaiBot 默认 vlm 模型")
+                        try:
+                            from src.llm_models.utils_model import LLMRequest
+                            from src.config.config import model_config as maibot_model_config
+                            
+                            # 下载图片并转为 Base64
+                            img_base64_data = None
+                            async with aiohttp.ClientSession() as session:
+                                async with session.get(image_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                                    if resp.status == 200:
+                                        image_bytes = await resp.read()
+                                        img_base64_data = base64.b64encode(image_bytes).decode('utf-8')
+                                    else:
+                                        logger.warning(f"{self.log_prefix} 下载参考图片失败: {resp.status}")
+                            
+                            if img_base64_data:
+                                # 使用 MaiBot 的 vlm 模型分析图片
+                                vlm_request = LLMRequest(
+                                    model_set=maibot_model_config.model_task_config.vlm,
+                                    request_type="plugin.search_reference.vision_analyze"
+                                )
+                                
+                                # 构造视觉分析的 prompt
+                                vision_prompt = (
+                                    "请详细分析这张图片中的角色视觉特征。"
+                                    "提取关键特征并转化为 Stable Diffusion 格式的英文提示词（Tag）。"
+                                    "包括但不限于：发色、瞳色、发型、服装、配饰、姿势、背景风格等。"
+                                    "只需返回提示词，不要包含任何解释性文字。"
+                                )
+                                
+                                # 调用 vlm 的 generate_response_for_image 方法
+                                # 根据图片 URL 判断格式，默认为 jpeg
+                                img_format = "jpeg"
+                                if image_url.lower().endswith(".png"):
+                                    img_format = "png"
+                                elif image_url.lower().endswith(".webp"):
+                                    img_format = "webp"
+                                elif image_url.lower().endswith(".gif"):
+                                    img_format = "gif"
+                                
+                                result = await vlm_request.generate_response_for_image(
+                                    prompt=vision_prompt,
+                                    image_base64=img_base64_data,
+                                    image_format=img_format
+                                )
+                                
+                                # 解析返回结果
+                                if result and len(result) >= 1:
+                                    features = result[0] if result[0] else ""
+                                    if features:
+                                        logger.info(f"{self.log_prefix} VLM 分析成功: {features[:100]}...")
+                                    
+                        except Exception as vlm_e:
+                            logger.warning(f"{self.log_prefix} MaiBot vlm 模型分析失败: {vlm_e}")
+                            features = ""
+                    
+                    # 5. 如果分析成功，就把特征拼接到用户的描述里
+                    if features:
+                        # 拼接格式：原描述, (提取的特征:1.3)
+                        # 1.3 是权重，表示让模型更重视这些特征
+                        description = f"{description}, ({features}:1.3)"
             
             except Exception as e:
                 # 如果中间出错了（比如网络断了），记录日志，但不要让整个程序崩掉

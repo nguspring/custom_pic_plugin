@@ -38,7 +38,7 @@ class NarrativeManager:
         """
         self.plugin = plugin_instance
         self.state_file_path = state_file_path
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()  # 使用可重入锁，避免嵌套调用时死锁
         self._state: Optional[DailyNarrativeState] = None
 
         # 加载或创建状态

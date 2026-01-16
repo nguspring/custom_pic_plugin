@@ -23,7 +23,7 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name: str = "custom_pic_plugin"  # type: ignore[assignment]
-    plugin_version: str = "3.5.0"
+    plugin_version: str = "3.5.1"
     plugin_author: str = "Ptrel，Rabbit，saberlights Kiuon，nguspring"
     enable_plugin: bool = True  # type: ignore[assignment]
     dependencies: List[str] = []  # type: ignore[assignment]
@@ -175,7 +175,7 @@ class CustomPicPlugin(BasePlugin):
             ),
             "config_version": ConfigField(
                 type=str,
-                default="3.5.0",
+                default="3.5.1",
                 description="插件配置版本号",
                 disabled=True,
                 order=2
@@ -669,7 +669,7 @@ class CustomPicPlugin(BasePlugin):
             "caption_model_id": ConfigField(
                 type=str,
                 default="",
-                description="配文生成使用的LLM模型ID。此处填写MaiBot主配置中的模型ID，留空则使用系统默认模型",
+                description="配文生成使用的LLM模型ID。此处填写MaiBot主配置中的模型ID（如model1），留空则使用MaiBot的replyer模型（回复模型）",
                 placeholder="model1",
                 depends_on="auto_selfie.enable_narrative",
                 depends_value=True,
@@ -708,7 +708,7 @@ class CustomPicPlugin(BasePlugin):
             "vision_api_key": ConfigField(
                 type=str,
                 default="",
-                description="用于识图的API Key（支持视觉的模型，如 gpt-4o）",
+                description="用于识图的API Key。留空则使用MaiBot的vlm模型（视觉语言模型），填写后则使用下方自定义的vision_model配置",
                 input_type="password",
                 depends_on="search_reference.enabled",
                 depends_value=True,
@@ -717,7 +717,7 @@ class CustomPicPlugin(BasePlugin):
             "vision_base_url": ConfigField(
                 type=str,
                 default="https://api.openai.com/v1",
-                description="识图API地址",
+                description="识图API地址（仅在vision_api_key不为空时生效）",
                 depends_on="search_reference.enabled",
                 depends_value=True,
                 order=3
@@ -725,7 +725,7 @@ class CustomPicPlugin(BasePlugin):
             "vision_model": ConfigField(
                 type=str,
                 default="gpt-4o",
-                description="视觉模型名称",
+                description="视觉模型名称（仅在vision_api_key不为空时生效）",
                 depends_on="search_reference.enabled",
                 depends_value=True,
                 order=4

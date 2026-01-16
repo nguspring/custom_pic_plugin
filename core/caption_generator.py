@@ -334,7 +334,8 @@ class CaptionGenerator:
         """调用 LLM 生成内容
 
         使用 MaiBot 的 llm_api 进行调用。
-        从配置中读取模型设置。
+        默认使用 MaiBot 主配置中的 replyer（回复模型），这样配文风格与麦麦的回复一致。
+        如果用户配置了自定义模型 ID，则使用用户指定的模型。
 
         Args:
             prompt: 完整的提示词
@@ -343,57 +344,80 @@ class CaptionGenerator:
             生成的配文内容，失败时返回空字符串
         """
         from src.plugin_system.apis import llm_api
+        from src.llm_models.utils_model import LLMRequest
+        from src.config.config import model_config as maibot_model_config
 
         try:
-            # 获取模型配置
-            ask_model_id = self.plugin.get_config("auto_selfie.ask_model_id", "")
-            available_models = llm_api.get_available_models()
-
-            # 选择模型配置
-            model_config = None
-
-            # 如果配置了指定模型，尝试使用
-            if ask_model_id and ask_model_id in available_models:
-                model_config = available_models[ask_model_id]
-                logger.debug(f"使用配置指定的模型: {ask_model_id}")
-            else:
-                # 按优先级尝试默认模型
-                default_model_priorities = [
-                    "default_model",
-                    "chat_model",
-                    "fast_model",
-                ]
-
-                for model_id in default_model_priorities:
-                    if model_id in available_models:
-                        model_config = available_models[model_id]
-                        logger.debug(f"使用默认模型: {model_id}")
-                        break
-
-                # 如果还是没有，使用第一个可用的模型
-                if model_config is None and available_models:
+            # 获取用户配置的自定义模型 ID
+            custom_model_id = self.plugin.get_config("auto_selfie.caption_model_id", "")
+            
+            # 如果用户配置了自定义模型，尝试使用
+            if custom_model_id:
+                available_models = llm_api.get_available_models()
+                if custom_model_id in available_models:
+                    model_config = available_models[custom_model_id]
+                    logger.debug(f"使用用户配置的模型: {custom_model_id}")
+                    
+                    # 调用 LLM 生成
+                    success, content, reasoning, model_name = await llm_api.generate_with_model(
+                        prompt=prompt,
+                        model_config=model_config,
+                        request_type="plugin.auto_selfie.caption_generate",
+                        temperature=0.8,
+                        max_tokens=100,
+                    )
+                    
+                    if success and content:
+                        logger.debug(f"LLM 生成成功，使用模型: {model_name}")
+                        return self._clean_caption(content)
+                    else:
+                        logger.warning(f"LLM 生成失败: {content}")
+                        return ""
+                else:
+                    logger.warning(f"配置的模型 '{custom_model_id}' 不存在，回退到默认 replyer 模型")
+            
+            # 默认使用 MaiBot 的 replyer 模型（回复模型）
+            # 这样配文风格与麦麦的回复保持一致
+            try:
+                replyer_request = LLMRequest(
+                    model_set=maibot_model_config.model_task_config.replyer,
+                    request_type="plugin.auto_selfie.caption_generate"
+                )
+                
+                content, reasoning = await replyer_request.generate_response_async(
+                    prompt,
+                    temperature=0.8,
+                    max_tokens=100
+                )
+                
+                if content:
+                    logger.debug("LLM 生成成功，使用 MaiBot replyer 模型")
+                    return self._clean_caption(content)
+                else:
+                    logger.warning("replyer 模型生成失败，返回空内容")
+                    return ""
+                    
+            except Exception as e:
+                logger.warning(f"使用 replyer 模型失败: {e}，尝试使用 llm_api 备用方案")
+                
+                # 备用方案：使用 llm_api 的第一个可用模型
+                available_models = llm_api.get_available_models()
+                if available_models:
                     first_key = next(iter(available_models))
                     model_config = available_models[first_key]
-                    logger.debug(f"使用第一个可用模型: {first_key}")
-
-            if model_config is None:
-                logger.error("没有可用的 LLM 模型配置")
-                return ""
-
-            # 调用 LLM 生成
-            success, content, reasoning, model_name = await llm_api.generate_with_model(
-                prompt=prompt,
-                model_config=model_config,
-                request_type="plugin.auto_selfie.caption_generate",
-                temperature=0.8,
-                max_tokens=100,
-            )
-
-            if success and content:
-                logger.debug(f"LLM 生成成功，使用模型: {model_name}")
-                return self._clean_caption(content)
-            else:
-                logger.warning(f"LLM 生成失败: {content}")
+                    logger.debug(f"使用备用模型: {first_key}")
+                    
+                    success, content, reasoning, model_name = await llm_api.generate_with_model(
+                        prompt=prompt,
+                        model_config=model_config,
+                        request_type="plugin.auto_selfie.caption_generate",
+                        temperature=0.8,
+                        max_tokens=100,
+                    )
+                    
+                    if success and content:
+                        return self._clean_caption(content)
+                
                 return ""
 
         except Exception as e:
