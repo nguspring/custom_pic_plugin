@@ -2,7 +2,7 @@ import asyncio
 import traceback
 import base64
 import os
-from typing import List, Tuple, Type, Optional, Dict, Any
+from typing import List, Tuple, Type, Optional, Dict, Any, TYPE_CHECKING
 
 import aiohttp  # type: ignore[import-not-found]
 
@@ -17,6 +17,10 @@ from .size_utils import validate_image_size, get_image_size
 from .runtime_state import runtime_state
 from .prompt_optimizer import optimize_prompt
 from .image_search_adapter import ImageSearchAdapter
+
+# 类型检查导入（避免循环导入）
+if TYPE_CHECKING:
+    from .schedule_models import ScheduleEntry
 
 logger = get_logger("pic_action")
 
@@ -603,10 +607,57 @@ class CustomPicAction(BaseAction):
         """验证图片尺寸格式是否正确（委托给size_utils）"""
         return validate_image_size(size)
 
-    def _process_selfie_prompt(self, description: str, selfie_style: str, free_hand_action: str, model_id: str) -> str:
-        """处理自拍模式的提示词生成"""
+    def _process_selfie_prompt(
+        self,
+        description: str,
+        selfie_style: str,
+        free_hand_action: str,
+        model_id: str,
+        schedule_entry: Optional["ScheduleEntry"] = None,
+    ) -> str:
+        """处理自拍模式的提示词生成
+        
+        Args:
+            description: 场景描述
+            selfie_style: 自拍风格 ("standard" 或 "mirror")
+            free_hand_action: 自由手部动作（如果指定）
+            model_id: 模型ID
+            schedule_entry: 可选的日程条目，如果提供则使用场景驱动方式生成提示词
+            
+        Returns:
+            完整的自拍提示词
+        """
         import random
         import re  # 导入正则库，用于清理冲突词
+
+        # 如果提供了 schedule_entry，使用新的场景驱动方式生成提示词
+        if schedule_entry is not None:
+            try:
+                from .scene_action_generator import SceneActionGenerator
+                
+                generator = SceneActionGenerator(self)
+                scene_prompt = generator.convert_to_sd_prompt(
+                    schedule_entry, selfie_style
+                )
+                
+                # 如果 description 中有额外内容，合并
+                if description and description.strip() and description.strip() != "auto selfie":
+                    # 将用户描述追加到场景提示词后面
+                    scene_prompt = f"{scene_prompt}, {description}"
+                
+                logger.info(
+                    f"{self.log_prefix} 使用场景驱动方式生成提示词 "
+                    f"(activity: {schedule_entry.activity_type})"
+                )
+                return scene_prompt
+                
+            except Exception as e:
+                logger.warning(
+                    f"{self.log_prefix} 场景驱动提示词生成失败，回退到传统方式: {e}"
+                )
+                # 回退到传统方式
+
+        # 原有逻辑（向后兼容）
 
         # 1. 添加强制主体设置
         forced_subject = "(1girl:1.4), (solo:1.3)"

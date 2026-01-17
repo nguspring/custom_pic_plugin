@@ -21,6 +21,11 @@ from .selfie_models import CaptionType, NarrativeScene, DailyNarrativeState
 from .narrative_manager import NarrativeManager
 from .caption_generator import CaptionGenerator
 
+# 导入动态日程系统模块
+from .schedule_models import DailySchedule, ScheduleEntry
+from .schedule_generator import ScheduleGenerator
+from .scene_action_generator import SceneActionGenerator
+
 logger = get_logger("auto_selfie_task")
 
 class AutoSelfieTask(AsyncTask):
@@ -87,6 +92,18 @@ class AutoSelfieTask(AsyncTask):
             logger.warning(f"{self.log_prefix} 叙事模块初始化失败，将使用传统配文方式: {e}")
             logger.warning(f"{self.log_prefix} [DEBUG-叙事] 初始化失败堆栈: {traceback.format_exc()}")
 
+        # 初始化动态日程系统（用于 smart 模式）
+        self.schedule_generator: Optional[ScheduleGenerator] = None
+        self.current_schedule: Optional[DailySchedule] = None
+        self._schedule_lock = threading.Lock()
+        try:
+            self.schedule_generator = ScheduleGenerator(plugin_instance)
+            logger.info(f"{self.log_prefix} 日程生成器初始化成功")
+        except Exception as e:
+            import traceback
+            logger.warning(f"{self.log_prefix} 日程生成器初始化失败: {e}")
+            logger.debug(f"{self.log_prefix} 初始化失败堆栈: {traceback.format_exc()}")
+
         # 检查全局任务中止标志（仅作检查，修复逻辑在plugin.py中）
         from src.manager.async_task_manager import async_task_manager
         if async_task_manager.abort_flag.is_set():
@@ -136,7 +153,10 @@ class AutoSelfieTask(AsyncTask):
     async def run(self):
         """执行定时检查任务
         
-        新逻辑：生成一次图片和配文，发送到所有符合条件的白名单流
+        v3.6.0 更新：统一使用 Smart 模式（时间点 + LLM场景）
+        - interval 模式已废弃，自动转换为 smart 模式
+        - times 模式自动升级为 smart 模式
+        - hybrid 模式自动升级为 smart 模式
         """
         try:
             # 1. 检查总开关
@@ -170,97 +190,48 @@ class AutoSelfieTask(AsyncTask):
                 return
             
             current_time_obj = datetime.now()
-            current_timestamp = current_time_obj.timestamp()
             current_date_str = current_time_obj.strftime("%Y-%m-%d")
             
             # 获取调度模式配置
-            schedule_mode = self.plugin.get_config("auto_selfie.schedule_mode", "interval")
-            target_times = []
+            schedule_mode = self.plugin.get_config("auto_selfie.schedule_mode", "smart")
             
-            # 对于 times 和 hybrid 模式都需要解析时间点
-            if schedule_mode in ("times", "hybrid"):
-                raw_times = self.plugin.get_config("auto_selfie.schedule_times", ["08:00", "12:00", "20:00"])
-                if isinstance(raw_times, list) and raw_times:
-                    target_times = raw_times
-                else:
-                    logger.warning(f"{self.log_prefix} schedule_times 配置无效，回退到 interval 模式")
-                    schedule_mode = "interval"
-
-            interval_minutes = self.plugin.get_config("auto_selfie.interval_minutes", 60)
-            interval_seconds = interval_minutes * 60
-
+            # ============================================================
+            # v3.6.0 模式统一：所有模式都使用 Smart 模式处理
+            # ============================================================
+            
+            # 处理模式迁移和废弃警告
+            if schedule_mode == "interval":
+                # Interval 模式已废弃，给出警告并自动转换
+                logger.warning(
+                    f"{self.log_prefix} [废弃警告] interval 模式已废弃！"
+                    f"倒计时触发不符合'真人感'需求，建议修改配置为 schedule_mode = \"smart\"。"
+                    f"系统将自动使用 smart 模式处理。"
+                )
+                schedule_mode = "smart"
+            elif schedule_mode == "times":
+                # Times 模式自动升级为 Smart 模式
+                logger.info(
+                    f"{self.log_prefix} [模式升级] times 模式已自动升级为 smart 模式，"
+                    f"保留时间点触发，增强场景生成能力。"
+                )
+                schedule_mode = "smart"
+            elif schedule_mode == "hybrid":
+                # Hybrid 模式自动升级为 Smart 模式
+                logger.info(
+                    f"{self.log_prefix} [模式升级] hybrid 模式已自动升级为 smart 模式，"
+                    f"移除倒计时补充，使用纯时间点+场景触发。"
+                )
+                schedule_mode = "smart"
+            
             # 4. 筛选符合条件的白名单流
             allowed_streams = self._filter_allowed_streams(streams)
             
             if not allowed_streams:
                 return
             
-            logger.debug(f"{self.log_prefix} 符合条件的流数量: {len(allowed_streams)}")
-            
-            # 5. 检查是否需要触发（使用第一个流作为代表进行时间检查）
-            # 新逻辑：所有流共享同一个触发状态
-            representative_stream = allowed_streams[0]
-            
-            should_trigger, trigger_type, scene_description, matched_time_point = await self._check_should_trigger(
-                representative_stream=representative_stream,
-                schedule_mode=schedule_mode,
-                target_times=target_times,
-                current_time_obj=current_time_obj,
-                current_date_str=current_date_str,
-                current_timestamp=current_timestamp,
-                interval_seconds=interval_seconds
-            )
-            
-            if not should_trigger:
-                return
-            
-            logger.info(f"{self.log_prefix} 触发自拍 (类型: {trigger_type})，将发送到 {len(allowed_streams)} 个流")
-            
-            # 6. 生成一次图片和配文
-            use_narrative = schedule_mode in ("hybrid", "times")
-            image_base64, ask_message, prompt_used = await self._generate_selfie_content_once(
-                representative_stream=representative_stream,
-                description=scene_description,
-                use_narrative_caption=use_narrative
-            )
-            
-            if not image_base64:
-                logger.warning(f"{self.log_prefix} 图片生成失败，取消发送")
-                return
-            
-            # 7. 发送到所有符合条件的流
-            success_count = 0
-            for stream in allowed_streams:
-                stream_id = stream.stream_id
-                try:
-                    # 发送图片
-                    await self._send_image_to_stream(stream, image_base64)
-                    
-                    # 发送配文
-                    if ask_message:
-                        import asyncio
-                        await asyncio.sleep(2)  # 稍微等待，让图片先展示
-                        await send_api.text_to_stream(ask_message, stream_id)
-                    
-                    success_count += 1
-                    logger.info(f"{self.log_prefix} 自拍发送成功: {stream_id}")
-                    
-                except Exception as e:
-                    logger.error(f"{self.log_prefix} 发送到流 {stream_id} 失败: {e}")
-            
-            logger.info(f"{self.log_prefix} 自拍发送完成，成功 {success_count}/{len(allowed_streams)} 个流")
-            
-            # 8. 更新所有流的状态（避免重复触发）
-            for stream in allowed_streams:
-                stream_id = stream.stream_id
-                if trigger_type == "times" and matched_time_point:
-                    if stream_id not in self.last_send_dates:
-                        self.last_send_dates[stream_id] = {}
-                    self.last_send_dates[stream_id][matched_time_point] = current_date_str
-                elif trigger_type == "interval":
-                    self.last_send_time[stream_id] = current_timestamp
-            
-            self._save_state()
+            # 5. 统一使用 Smart 模式处理
+            logger.debug(f"{self.log_prefix} 符合条件的流数量: {len(allowed_streams)}，使用 Smart 模式")
+            await self._process_smart_mode(allowed_streams, current_time_obj, current_date_str)
 
         except Exception as e:
             logger.error(f"[AutoSelfie] 定时任务执行出错: {e}", exc_info=True)
@@ -1653,3 +1624,321 @@ Now generate for current time ({time_str}):"""
 
         except Exception as e:
             logger.error(f"[AutoSelfie] 触发自拍失败: {e}", exc_info=True)
+
+    # ============================================================
+    # Smart 模式（动态日程系统）相关方法
+    # ============================================================
+
+    async def _ensure_daily_schedule(self) -> Optional[DailySchedule]:
+        """确保当天日程已生成
+        
+        如果当前缓存的日程日期与今天不符，则重新生成或加载。
+        
+        Returns:
+            当天的日程对象，失败返回 None
+        """
+        if self.schedule_generator is None:
+            logger.warning(f"{self.log_prefix} 日程生成器未初始化，无法使用 smart 模式")
+            return None
+        
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        # 检查缓存是否有效
+        with self._schedule_lock:
+            if self.current_schedule and self.current_schedule.date == today:
+                logger.debug(f"{self.log_prefix} 使用缓存的日程: {today}")
+                return self.current_schedule
+        
+        # 尝试加载或生成日程
+        try:
+            schedule_times = self.plugin.get_config(
+                "auto_selfie.schedule_times", ["08:00", "12:00", "20:00"]
+            )
+            character_name = self.plugin.get_config(
+                "auto_selfie.character_name", "麦麦"
+            )
+            character_persona = self.plugin.get_config(
+                "auto_selfie.character_persona", "一个可爱的二次元女孩"
+            )
+            weather = self.plugin.get_config("auto_selfie.weather", "晴天")
+            is_holiday = self.plugin.get_config("auto_selfie.is_holiday", False)
+            
+            logger.info(f"{self.log_prefix} [Smart] 开始加载或生成日程: {today}")
+            
+            schedule = await self.schedule_generator.get_or_generate_schedule(
+                date=today,
+                character_name=character_name,
+                character_persona=character_persona,
+                schedule_times=schedule_times,
+                weather=weather,
+                is_holiday=is_holiday,
+            )
+            
+            if schedule:
+                with self._schedule_lock:
+                    self.current_schedule = schedule
+                logger.info(
+                    f"{self.log_prefix} [Smart] 日程加载成功，共 {len(schedule.entries)} 个条目"
+                )
+                return schedule
+            else:
+                logger.warning(f"{self.log_prefix} [Smart] 日程生成失败")
+                return None
+                
+        except Exception as e:
+            logger.error(f"{self.log_prefix} [Smart] 获取日程异常: {e}", exc_info=True)
+            return None
+
+    async def _process_smart_mode(
+        self,
+        allowed_streams: List,
+        current_time_obj: datetime,
+        current_date_str: str,
+    ) -> None:
+        """处理智能日程模式
+        
+        使用动态生成的日程来决定何时发送自拍以及发送什么内容。
+        
+        Args:
+            allowed_streams: 符合条件的聊天流列表
+            current_time_obj: 当前时间对象
+            current_date_str: 当前日期字符串
+        """
+        logger.debug(f"{self.log_prefix} [Smart] 开始处理智能日程模式")
+        
+        # 确保日程已生成
+        schedule = await self._ensure_daily_schedule()
+        if not schedule:
+            logger.warning(f"{self.log_prefix} [Smart] 无法获取日程，跳过本次检查")
+            return
+        
+        # 获取当前时间应该触发的条目
+        current_entry = schedule.get_current_entry(current_time_obj)
+        if not current_entry:
+            # 当前时间没有匹配的日程条目
+            logger.debug(f"{self.log_prefix} [Smart] 当前时间没有匹配的日程条目")
+            return
+        
+        # 检查该条目是否已完成
+        if current_entry.is_completed:
+            logger.debug(
+                f"{self.log_prefix} [Smart] 条目 {current_entry.time_point} 已完成，跳过"
+            )
+            return
+        
+        logger.info(
+            f"{self.log_prefix} [Smart] 触发日程条目: {current_entry.time_point} "
+            f"({current_entry.activity_description})"
+        )
+        
+        # 使用第一个流作为代表生成图片和配文
+        representative_stream = allowed_streams[0]
+        
+        # 生成图片和配文（使用 schedule_entry）
+        image_base64, caption, prompt_used = await self._generate_selfie_content_with_entry(
+            representative_stream=representative_stream,
+            schedule_entry=current_entry,
+        )
+        
+        if not image_base64:
+            logger.warning(f"{self.log_prefix} [Smart] 图片生成失败，取消发送")
+            return
+        
+        # 发送到所有符合条件的流
+        success_count = 0
+        for stream in allowed_streams:
+            stream_id = stream.stream_id
+            try:
+                # 发送图片
+                await self._send_image_to_stream(stream, image_base64)
+                
+                # 发送配文
+                if caption:
+                    import asyncio
+                    await asyncio.sleep(2)
+                    await send_api.text_to_stream(caption, stream_id)
+                
+                success_count += 1
+                logger.info(f"{self.log_prefix} [Smart] 自拍发送成功: {stream_id}")
+                
+            except Exception as e:
+                logger.error(f"{self.log_prefix} [Smart] 发送到流 {stream_id} 失败: {e}")
+        
+        logger.info(
+            f"{self.log_prefix} [Smart] 自拍发送完成，"
+            f"成功 {success_count}/{len(allowed_streams)} 个流"
+        )
+        
+        # 标记条目完成并保存
+        schedule.mark_entry_completed(current_entry.time_point, caption)
+        if self.schedule_generator is not None:
+            schedule.save_to_file(self.schedule_generator.get_schedule_file_path())
+        
+        # 更新缓存
+        with self._schedule_lock:
+            self.current_schedule = schedule
+
+    async def _generate_selfie_content_with_entry(
+        self,
+        representative_stream,
+        schedule_entry: ScheduleEntry,
+    ) -> Tuple[Optional[str], str, str]:
+        """使用日程条目生成自拍图片和配文
+        
+        Args:
+            representative_stream: 代表流（用于初始化 Action）
+            schedule_entry: 日程条目
+            
+        Returns:
+            Tuple[图片base64, 配文, 使用的prompt]
+        """
+        from .pic_action import CustomPicAction
+        
+        chat_stream = representative_stream
+        stream_id = chat_stream.stream_id
+        
+        logger.info(f"{self.log_prefix} [Smart] 使用日程条目生成自拍内容")
+        
+        try:
+            # 1. 获取配置
+            style = self.plugin.get_config("auto_selfie.selfie_style", "standard")
+            model_id = self.plugin.get_config("auto_selfie.model_id", "model1")
+            
+            # 2. 使用 SceneActionGenerator 生成配文上下文
+            scene_generator = SceneActionGenerator(self.plugin)
+            caption_context = scene_generator.create_caption_context(schedule_entry)
+            
+            # 3. 生成配文
+            caption = await self._generate_caption_for_entry(schedule_entry, caption_context)
+            
+            # 4. 构造 Mock 对象
+            class MockUserInfo:
+                def __init__(self, user_id, user_nickname, platform):
+                    self.user_id = user_id
+                    self.user_nickname = user_nickname
+                    self.platform = platform
+            
+            class MockGroupInfo:
+                def __init__(self, group_id, group_name, group_platform):
+                    self.group_id = group_id
+                    self.group_name = group_name
+                    self.group_platform = group_platform
+
+            class MockChatInfo:
+                def __init__(self, platform, group_info=None):
+                    self.platform = platform
+                    self.group_info = group_info
+
+            s_user_id = getattr(chat_stream.user_info, "user_id", "")
+            s_user_nickname = getattr(chat_stream.user_info, "user_nickname", "User")
+            s_platform = getattr(chat_stream, "platform", "unknown")
+            
+            is_group = getattr(chat_stream, "is_group", False)
+            s_group_id = getattr(chat_stream, "group_id", "") if is_group else ""
+            s_group_name = getattr(chat_stream, "group_name", "") if is_group else ""
+            
+            user_info = MockUserInfo(s_user_id, s_user_nickname, s_platform)
+            group_info = MockGroupInfo(s_group_id, s_group_name, s_platform) if is_group else None
+            chat_info = MockChatInfo(s_platform, group_info)
+            
+            mock_message = DatabaseMessages()  # type: ignore
+            mock_message.message_id = f"smart_selfie_{int(time.time())}"
+            mock_message.time = time.time()
+            mock_message.user_info = user_info  # type: ignore[assignment]
+            mock_message.chat_info = chat_info  # type: ignore[assignment]
+            mock_message.processed_plain_text = "smart selfie task"
+            
+            action_data = {
+                "description": "smart selfie",
+                "model_id": model_id,
+                "selfie_mode": True,
+                "selfie_style": style,
+                "size": ""
+            }
+            
+            action_instance = CustomPicAction(
+                action_data=action_data,
+                action_reasoning="Smart schedule selfie triggered",
+                cycle_timers={},
+                thinking_id="smart_selfie",
+                chat_stream=chat_stream,
+                plugin_config=self.plugin.config,
+                action_message=mock_message
+            )
+            
+            # 5. 使用场景驱动方式生成提示词
+            prompt = action_instance._process_selfie_prompt(
+                description="",  # 空描述，完全由 schedule_entry 驱动
+                selfie_style=style,
+                free_hand_action="",
+                model_id=model_id,
+                schedule_entry=schedule_entry,  # 传入日程条目
+            )
+            
+            # 6. 获取负面提示词
+            neg_prompt = scene_generator.get_negative_prompt_for_style(style)
+            
+            # 7. 获取参考图
+            ref_image = action_instance._get_selfie_reference_image()
+            
+            # 8. 执行图片生成
+            image_base64 = await action_instance._generate_image_only(
+                description=prompt,
+                model_id=model_id,
+                size="",
+                strength=0.6,
+                input_image_base64=ref_image,
+                extra_negative_prompt=neg_prompt
+            )
+            
+            return image_base64, caption, prompt
+            
+        except Exception as e:
+            logger.error(
+                f"{self.log_prefix} [Smart] 生成自拍内容失败: {e}", exc_info=True
+            )
+            return None, "", ""
+
+    async def _generate_caption_for_entry(
+        self,
+        schedule_entry: ScheduleEntry,
+        caption_context: Dict[str, str],
+    ) -> str:
+        """为日程条目生成配文
+        
+        Args:
+            schedule_entry: 日程条目
+            caption_context: 配文上下文
+            
+        Returns:
+            生成的配文
+        """
+        # 首先尝试使用叙事配文系统
+        if self.caption_generator is not None:
+            try:
+                # 将 caption_type 字符串转换为 CaptionType 枚举
+                caption_type_str = schedule_entry.caption_type.upper()
+                try:
+                    caption_type = CaptionType(caption_type_str.lower())
+                except ValueError:
+                    caption_type = CaptionType.SHARE
+                
+                caption = await self.caption_generator.generate_caption(
+                    caption_type=caption_type,
+                    scene_description=schedule_entry.activity_description,
+                    narrative_context=caption_context.get("activity_detail", ""),
+                    image_prompt=schedule_entry.suggested_caption_theme,
+                    mood=schedule_entry.mood,
+                )
+                
+                if caption:
+                    logger.info(
+                        f"{self.log_prefix} [Smart] 配文生成成功 (类型: {caption_type.value})"
+                    )
+                    return caption
+                    
+            except Exception as e:
+                logger.warning(f"{self.log_prefix} [Smart] 叙事配文生成失败: {e}")
+        
+        # 回退到传统方式
+        return await self._generate_traditional_caption(schedule_entry.activity_description)
