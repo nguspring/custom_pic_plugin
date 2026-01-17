@@ -150,7 +150,7 @@ character_persona = "一个可爱活泼的二次元女孩，喜欢美食和逛�
 - `sleep_start_time`: 睡眠开始时间（如 "23:00"）
 - `sleep_end_time`: 睡眠结束时间（如 "07:00"）
 - `list_mode`: 名单模式。`whitelist`=白名单（仅允许列表），`blacklist`=黑名单（排除列表）
-- `chat_id_list`: 聊天ID列表
+- `chat_id_list`: 聊天ID列表。**注意**：在 `config.toml` 文件中直接修改时，ID需要加双引号（如 `"qq:123456:group"`）；通过 WebUI 修改时无需手动加引号，WebUI 会自动处理格式
 
 **自拍场景配置** (`[selfie]` 节)：
 - `scene_standard`: 标准自拍（前置摄像头）的场景描述
@@ -324,12 +324,15 @@ Smart 模式引入了以下新的核心模块：
 
 本版本更新了配置 schema，使默认配置直接使用 Smart 模式，并清理了旧模式配置项。
 
+**新功能：**
+- 🆕 **手动自拍读取日程**：当用户请求"来张自拍"时，如果当天已生成日程，会智能读取当前时间对应的日程条目，让手动自拍也能融入每日故事线，保持场景和配文的一致性
+
 **配置变更：**
 - 🔧 **schedule_mode 默认值改为 smart**：新用户默认使用智能日程模式
 - 🆕 **新增 schedule_generator_model**：日程生成使用的 LLM 模型配置
 - 🆕 **新增 schedule_min_entries/schedule_max_entries**：控制每天日程条目数量（默认4-8条）
-- ⚠️ **旧模式配置标记为已废弃**：enable_llm_scene、time_scenes、interval_probability 等配置项标记为【已废弃】
-- 📝 **配置描述优化**：更新描述说明 smart 是唯一推荐模式
+- 🗑️ **清理已废弃配置项**：删除 schedule_times、interval_minutes、enable_llm_scene、scene_llm_model、time_scenes、interval_probability 等旧模式配置项
+- 📝 **配置注释优化**：更新 chat_id_list 说明，明确在 config 文件和 WebUI 中修改时双引号的要求；更新模型配置注释与参考文件风格一致
 
 **向后兼容：**
 - ✅ 保留 interval/times/hybrid 模式选项（用于兼容旧配置）

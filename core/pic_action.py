@@ -2,6 +2,7 @@ import asyncio
 import traceback
 import base64
 import os
+from datetime import datetime
 from typing import List, Tuple, Type, Optional, Dict, Any, TYPE_CHECKING
 
 import aiohttp  # type: ignore[import-not-found]
@@ -20,7 +21,7 @@ from .image_search_adapter import ImageSearchAdapter
 
 # 类型检查导入（避免循环导入）
 if TYPE_CHECKING:
-    from .schedule_models import ScheduleEntry
+    from .schedule_models import ScheduleEntry, DailySchedule
 
 logger = get_logger("pic_action")
 
@@ -335,7 +336,30 @@ class CustomPicAction(BaseAction):
                 return False, "自拍功能未启用"
 
             logger.info(f"{self.log_prefix} 启用自拍模式，风格: {selfie_style}")
-            description = self._process_selfie_prompt(description, selfie_style, free_hand_action, model_id)
+            
+            # 【新增】检查是否启用了自动自拍功能，如果启用则尝试读取当前日程
+            schedule_entry: Optional["ScheduleEntry"] = None
+            auto_selfie_enabled = self.get_config("auto_selfie.enabled", False)
+            
+            if auto_selfie_enabled:
+                # 尝试获取当前时间对应的日程条目
+                schedule_entry = await self._get_current_schedule_entry()
+                if schedule_entry:
+                    logger.info(
+                        f"{self.log_prefix} 用户手动请求自拍，读取到日程条目: "
+                        f"{schedule_entry.time_point} - {schedule_entry.activity_description}"
+                    )
+                else:
+                    logger.info(
+                        f"{self.log_prefix} 用户手动请求自拍，当前时间无匹配日程，使用传统模式"
+                    )
+            else:
+                logger.debug(f"{self.log_prefix} 自动自拍未启用，使用传统自拍模式")
+            
+            # 调用 _process_selfie_prompt，传入日程条目（如果有）
+            description = self._process_selfie_prompt(
+                description, selfie_style, free_hand_action, model_id, schedule_entry
+            )
             logger.info(f"{self.log_prefix} 自拍模式处理后的提示词: {description}") # 显示所有提示词
 
             # 👇 读取自拍专用负面提示词（从配置读取基础负面词） 👇
@@ -1079,3 +1103,78 @@ class CustomPicAction(BaseAction):
             cleaned_text = cleaned_text[:100]
             
         return cleaned_text
+
+    async def _get_current_schedule_entry(self) -> Optional["ScheduleEntry"]:
+        """获取当前时间对应的日程条目
+        
+        尝试加载或生成当天日程，并返回当前时间匹配的条目。
+        如果日程系统未启用或无法获取，返回 None。
+        
+        Returns:
+            Optional[ScheduleEntry]: 当前时间对应的日程条目，或 None
+        """
+        try:
+            # 导入日程相关模块
+            from .schedule_generator import ScheduleGenerator
+            from .schedule_models import DailySchedule
+            
+            # 检查是否配置了 smart 模式（只有 smart 模式才有日程）
+            schedule_mode = self.get_config("auto_selfie.schedule_mode", "smart")
+            if schedule_mode not in ("smart", "times", "hybrid"):
+                logger.debug(f"{self.log_prefix} 当前调度模式不支持日程: {schedule_mode}")
+                return None
+            
+            # 创建日程生成器
+            schedule_generator = ScheduleGenerator(self)
+            
+            # 获取配置（显式类型转换以满足类型检查）
+            today = datetime.now().strftime("%Y-%m-%d")
+            
+            schedule_times_config = self.get_config(
+                "auto_selfie.schedule_times", ["08:00", "12:00", "20:00"]
+            )
+            schedule_times: list[str] = (
+                list(schedule_times_config)
+                if isinstance(schedule_times_config, list)
+                else ["08:00", "12:00", "20:00"]
+            )
+            
+            character_name: str = str(
+                self.get_config("auto_selfie.character_name", "麦麦") or "麦麦"
+            )
+            character_persona: str = str(
+                self.get_config("auto_selfie.character_persona", "一个可爱的二次元女孩")
+                or "一个可爱的二次元女孩"
+            )
+            weather: str = str(
+                self.get_config("auto_selfie.weather", "晴天") or "晴天"
+            )
+            is_holiday_config = self.get_config("auto_selfie.is_holiday", False)
+            is_holiday: bool = bool(is_holiday_config) if is_holiday_config is not None else False
+            
+            # 获取或生成日程
+            schedule = await schedule_generator.get_or_generate_schedule(
+                date=today,
+                character_name=character_name,
+                character_persona=character_persona,
+                schedule_times=schedule_times,
+                weather=weather,
+                is_holiday=is_holiday,
+            )
+            
+            if not schedule:
+                logger.warning(f"{self.log_prefix} 无法获取日程")
+                return None
+            
+            # 获取当前时间对应的条目
+            current_time = datetime.now()
+            current_entry = schedule.get_current_entry(current_time)
+            
+            return current_entry
+            
+        except ImportError as e:
+            logger.warning(f"{self.log_prefix} 日程模块导入失败: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"{self.log_prefix} 获取日程条目失败: {e}", exc_info=True)
+            return None
