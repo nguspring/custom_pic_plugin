@@ -23,7 +23,7 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name: str = "custom_pic_plugin"  # type: ignore[assignment]
-    plugin_version: str = "3.5.1"
+    plugin_version: str = "3.5.2"
     plugin_author: str = "Ptrel，Rabbit，saberlights Kiuon，nguspring"
     enable_plugin: bool = True  # type: ignore[assignment]
     dependencies: List[str] = []  # type: ignore[assignment]
@@ -69,7 +69,7 @@ class CustomPicPlugin(BasePlugin):
         ),
         "auto_selfie": ConfigSection(
             title="定时自拍配置",
-            description="Bot会根据设定的时间间隔自动发送自拍。v3.5.0新增日常叙事系统和hybrid混合模式",
+            description="Bot会根据LLM智能日程动态发送自拍。v3.5.0起统一为smart模式，旧模式(interval/times/hybrid)自动升级",
             icon="clock",
             order=7
         ),
@@ -175,7 +175,7 @@ class CustomPicPlugin(BasePlugin):
             ),
             "config_version": ConfigField(
                 type=str,
-                default="3.5.1",
+                default="3.5.2",
                 description="插件配置版本号",
                 disabled=True,
                 order=2
@@ -463,31 +463,64 @@ class CustomPicPlugin(BasePlugin):
             ),
             "schedule_mode": ConfigField(
                 type=str,
-                default="interval",
-                description="调度模式。interval=倒计时模式，times=指定时间点模式，hybrid=混合模式（times为主线+interval为补充）",
-                choices=["interval", "times", "hybrid"],
+                default="smart",
+                description="调度模式。smart=智能日程模式（LLM动态规划一天日程，推荐）。interval/times/hybrid为旧模式，会自动升级为smart",
+                choices=["smart", "interval", "times", "hybrid"],
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
                 order=2
             ),
+            # [Smart模式] 日程生成使用的LLM模型
+            "schedule_generator_model": ConfigField(
+                type=str,
+                default="",
+                description="【Smart模式】日程生成使用的LLM模型ID。留空则使用MaiBot的replyer模型（回复模型）。注意：这里是MaiBot的文本模型，不是绘图模型",
+                placeholder="model1",
+                depends_on="auto_selfie.schedule_mode",
+                depends_value="smart",
+                order=3
+            ),
+            # [Smart模式] 每天日程条目数量范围
+            "schedule_min_entries": ConfigField(
+                type=int,
+                default=4,
+                description="【Smart模式】每天最少生成多少条日程",
+                min=1,
+                max=20,
+                depends_on="auto_selfie.schedule_mode",
+                depends_value="smart",
+                order=4
+            ),
+            "schedule_max_entries": ConfigField(
+                type=int,
+                default=8,
+                description="【Smart模式】每天最多生成多少条日程",
+                min=1,
+                max=20,
+                depends_on="auto_selfie.schedule_mode",
+                depends_value="smart",
+                order=5
+            ),
+            # [兼容旧模式] 指定发送时间点（已废弃，仅用于兼容）
             "schedule_times": ConfigField(
                 type=list,
                 default=["08:00", "12:00", "20:00"],
-                description="指定发送时间点列表（24小时制 HH:MM），仅在 schedule_mode='times' 时生效",
+                description="【已废弃】指定发送时间点列表。旧times模式配置，现已自动升级为smart模式",
                 placeholder="[\"08:00\", \"12:00\", \"20:00\"]",
                 depends_on="auto_selfie.schedule_mode",
                 depends_value="times",
-                order=3
+                order=50
             ),
+            # [兼容旧模式] 间隔时间（已废弃，仅用于兼容）
             "interval_minutes": ConfigField(
                 type=int,
                 default=60,
-                description="定时自拍间隔时间（分钟）。建议10-120分钟，太频繁可能会打扰用户",
+                description="【已废弃】定时自拍间隔时间（分钟）。旧interval模式配置，现已自动升级为smart模式",
                 min=1,
                 max=1440,
                 depends_on="auto_selfie.schedule_mode",
                 depends_value="interval",
-                order=4
+                order=51
             ),
             "ask_message": ConfigField(
                 type=str,
@@ -568,36 +601,36 @@ class CustomPicPlugin(BasePlugin):
                 depends_value=True,
                 order=13
             ),
-            # [新增] 是否启用 LLM 智能场景判断 (Interval 模式专用)
+            # [已废弃] 旧Interval模式的LLM场景判断，现已被Smart模式取代
             "enable_llm_scene": ConfigField(
                 type=bool,
                 default=False,
-                description="【仅限Interval模式】开启后，发自拍前会让LLM根据当前时间（如'周一上午10点'）构思一个合适的场景（如'办公室喝咖啡'）。关闭则使用默认场景。",
-                depends_on="auto_selfie.enabled",
-                depends_value=True,
-                order=14
+                description="【已废弃】旧Interval模式配置。Smart模式下场景由LLM日程自动生成，无需此配置",
+                depends_on="auto_selfie.schedule_mode",
+                depends_value="interval",
+                order=52
             ),
-            # [新增] 智能场景判断使用的模型 (留空则使用默认回复模型)
+            # [已废弃] 旧模式的场景LLM模型配置
             "scene_llm_model": ConfigField(
                 type=str,
                 default="",
-                description="构思自拍场景时使用的LLM模型。此处填写MaiBot主配置中的模型ID（如model1），留空则使用系统默认模型。注意：这里是指MaiBot的文本模型，不是绘图模型。",
+                description="【已废弃】旧模式配置。Smart模式请使用 schedule_generator_model 配置日程生成模型",
                 placeholder="model1",
                 depends_on="auto_selfie.enable_llm_scene",
                 depends_value=True,
-                order=15
+                order=53
             ),
-            # [新增] Times 模式的自定义场景配置
+            # [已废弃] Times模式的自定义场景配置
             "time_scenes": ConfigField(
                 type=list,
                 default=["08:00|morning coffee, cafe, sunlight", "23:00|pajamas, bed, sleepy, night light"],
-                description="【仅限Times模式】为每个时间点指定自拍场景。格式：'HH:MM|英文场景描述'。例如 '08:00|bedroom, pajamas, morning' 表示8点发的自拍用卧室睡衣早晨的场景。未配置的时间点使用默认场景。",
+                description="【已废弃】旧Times模式配置。Smart模式下场景由LLM日程自动生成",
                 placeholder="[\"08:00|morning coffee\", \"22:00|reading book\"]",
                 depends_on="auto_selfie.schedule_mode",
                 depends_value="times",
-                order=16
+                order=54
             ),
-            # [新增] 询问语生成的模型 ID
+            # 询问语生成的模型 ID（仍然有效）
             "ask_model_id": ConfigField(
                 type=str,
                 default="",
@@ -607,17 +640,17 @@ class CustomPicPlugin(BasePlugin):
                 depends_value=True,
                 order=17
             ),
-            # [新增] Hybrid 模式配置
+            # [已废弃] Hybrid模式配置
             "interval_probability": ConfigField(
                 type=float,
                 default=0.3,
-                description="【仅限Hybrid模式】在非times时间点时，interval补充触发的概率（0.0-1.0）。设为0则hybrid模式等同于纯times模式",
+                description="【已废弃】旧Hybrid模式配置。Smart模式下由LLM动态生成日程，无需此配置",
                 min=0.0,
                 max=1.0,
                 step=0.1,
                 depends_on="auto_selfie.schedule_mode",
                 depends_value="hybrid",
-                order=18
+                order=55
             ),
             # [新增] 叙事系统配置
             "enable_narrative": ConfigField(
