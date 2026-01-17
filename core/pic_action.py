@@ -400,39 +400,106 @@ class CustomPicAction(BaseAction):
     # 👇 新增参数 extra_negative_prompt: str = None
     async def _execute_unified_generation(self, description: str, model_id: str, size: str, strength: Optional[float] = None, input_image_base64: Optional[str] = None, extra_negative_prompt: Optional[str] = None) -> Tuple[bool, Optional[str]]:
         """统一的图片生成执行方法"""
+        # 调用内部方法生成图片
+        success, image_data, error_msg = await self._generate_image_internal(
+            description=description,
+            model_id=model_id,
+            size=size,
+            strength=strength,
+            input_image_base64=input_image_base64,
+            extra_negative_prompt=extra_negative_prompt
+        )
+        
+        if not success or not image_data:
+            is_img2img = input_image_base64 is not None
+            mode_text = "图生图" if is_img2img else "文生图"
+            await self.send_text(f"哎呀，{mode_text}时遇到问题：{error_msg}")
+            return False, f"{mode_text}失败: {error_msg}"
+        
+        # 发送图片
+        is_img2img = input_image_base64 is not None
+        enable_debug = self.get_config("components.enable_debug_info", False)
+        
+        send_success = await self.send_image(image_data)
+        if send_success:
+            mode_text = "图生图" if is_img2img else "文生图"
+            if enable_debug:
+                await self.send_text(f"{mode_text}完成！")
+            # 缓存成功的结果
+            model_config = self._get_model_config(model_id)
+            model_name = model_config.get("model", "default-model") if model_config else "default-model"
+            image_size = size or model_config.get("default_size", "1024x1024") if model_config else "1024x1024"
+            self.cache_manager.cache_result(description, model_name, image_size, strength, is_img2img, image_data)
+            # 安排自动撤回（如果该模型启用）
+            await self._schedule_auto_recall_for_recent_message(model_config)
+            return True, f"{mode_text}已成功生成并发送"
+        else:
+            await self.send_text("图片已处理完成，但发送失败了")
+            return False, "图片发送失败"
 
-        success = False
-        result: Optional[str] = None
+    async def _generate_image_only(self, description: str, model_id: str, size: str, strength: Optional[float] = None, input_image_base64: Optional[str] = None, extra_negative_prompt: Optional[str] = None) -> Optional[str]:
+        """仅生成图片，返回 base64 编码，不发送
+        
+        用于自动自拍任务的"生成一次，发送多次"模式
+        
+        Args:
+            description: 图片描述
+            model_id: 模型ID
+            size: 图片尺寸
+            strength: 图生图强度
+            input_image_base64: 输入图片的 base64 编码
+            extra_negative_prompt: 额外的负面提示词
+            
+        Returns:
+            Optional[str]: 图片的 base64 编码，失败返回 None
+        """
+        success, image_data, error_msg = await self._generate_image_internal(
+            description=description,
+            model_id=model_id,
+            size=size,
+            strength=strength,
+            input_image_base64=input_image_base64,
+            extra_negative_prompt=extra_negative_prompt
+        )
+        
+        if success and image_data:
+            return image_data
+        else:
+            logger.warning(f"{self.log_prefix} 图片生成失败: {error_msg}")
+            return None
+
+    async def _generate_image_internal(self, description: str, model_id: str, size: str, strength: Optional[float] = None, input_image_base64: Optional[str] = None, extra_negative_prompt: Optional[str] = None) -> Tuple[bool, Optional[str], str]:
+        """内部图片生成方法，返回 (成功, 图片base64, 错误信息)
+        
+        注意：此方法只生成图片，不发送。发送由调用者负责。
+        """
 
         # 获取模型配置
         model_config = self._get_model_config(model_id)
         if not model_config:
-            error_msg = f"指定的模型 '{model_id}' 不存在或配置无效，请检查配置文件。"
-            await self.send_text(error_msg)
+            error_msg = f"指定的模型 '{model_id}' 不存在或配置无效"
             logger.error(f"{self.log_prefix} 模型配置获取失败: {model_id}")
-            return False, "模型配置无效"
+            return False, None, error_msg
 
         # 配置验证
         http_base_url = model_config.get("base_url")
         http_api_key = model_config.get("api_key")
         if not (http_base_url and http_api_key):
-            error_msg = "抱歉，图片生成功能所需的HTTP配置（如API地址或密钥）不完整，无法提供服务。"
-            await self.send_text(error_msg)
+            error_msg = "HTTP配置不完整（缺少base_url或api_key）"
             logger.error(f"{self.log_prefix} HTTP调用配置缺失: base_url 或 api_key.")
-            return False, "HTTP配置不完整"
+            return False, None, error_msg
 
         # API密钥验证
         if "YOUR_API_KEY_HERE" in http_api_key or "xxxxxxxxxxxxxx" in http_api_key:
-            error_msg = "图片生成功能尚未配置，请设置正确的API密钥。"
-            await self.send_text(error_msg)
+            error_msg = "API密钥未配置"
             logger.error(f"{self.log_prefix} API密钥未配置")
-            return False, "API密钥未配置"
+            return False, None, error_msg
 
         # 获取模型配置参数
         model_name = model_config.get("model", "default-model")
         api_format = model_config.get("format", "openai")
 
-        # 👇 下面是新插入的代码：合并负面提示词 👇
+        # 合并负面提示词
         if extra_negative_prompt:
             # 复制一份配置，避免修改原始配置影响后续调用
             model_config = dict(model_config)
@@ -456,22 +523,7 @@ class CustomPicAction(BaseAction):
 
         if cached_result:
             logger.info(f"{self.log_prefix} 使用缓存的图片结果")
-            enable_debug = self.get_config("components.enable_debug_info", False)
-            if enable_debug:
-                await self.send_text("我之前画过类似的图片，用之前的结果~")
-            send_success = await self.send_image(cached_result)
-            if send_success:
-                return True, "图片已发送(缓存)"
-            else:
-                self.cache_manager.remove_cached_result(description, model_name, image_size, strength, is_img2img)
-
-        # 显示处理信息
-        enable_debug = self.get_config("components.enable_debug_info", False)
-        if enable_debug:
-            mode_text = "图生图" if is_img2img else "文生图"
-            await self.send_text(
-                f"收到！正在为您使用 {model_id or '默认'} 模型进行{mode_text}，描述: '{description}'，请稍候...（模型: {model_name}, 尺寸: {image_size}）"
-            )
+            return True, cached_result, ""
 
         try:
             # 对于 Gemini/Zai 格式，将原始 LLM 尺寸添加到 model_config 中
@@ -495,60 +547,36 @@ class CustomPicAction(BaseAction):
         except Exception as e:
             logger.error(f"{self.log_prefix} 异步请求执行失败: {e!r}", exc_info=True)
             traceback.print_exc()
-            success = False
-            result = f"图片生成服务遇到意外问题: {str(e)[:100]}"
+            return False, None, f"图片生成服务遇到意外问题: {str(e)[:100]}"
 
         if success and result:
             final_image_data = self.image_processor.process_api_response(result)
 
             if final_image_data:
                 if final_image_data.startswith(("iVBORw", "/9j/", "UklGR", "R0lGOD")):  # Base64
-                    send_success = await self.send_image(final_image_data)
-                    if send_success:
-                        mode_text = "图生图" if is_img2img else "文生图"
-                        if enable_debug:
-                            await self.send_text(f"{mode_text}完成！")
-                        # 缓存成功的结果
-                        self.cache_manager.cache_result(description, model_name, image_size, strength, is_img2img, final_image_data)
-                        # 安排自动撤回（如果该模型启用）
-                        await self._schedule_auto_recall_for_recent_message(model_config)
-                        return True, f"{mode_text}已成功生成并发送"
-                    else:
-                        await self.send_text("图片已处理完成，但发送失败了")
-                        return False, "图片发送失败"
-                else:  # URL
+                    # 缓存成功的结果
+                    self.cache_manager.cache_result(description, model_name, image_size, strength, is_img2img, final_image_data)
+                    return True, final_image_data, ""
+                else:  # URL - 需要下载转换为 base64
                     try:
                         encode_success, encode_result = await asyncio.to_thread(
                             self.image_processor.download_and_encode_base64, final_image_data
                         )
                         if encode_success and encode_result:
-                            send_success = await self.send_image(encode_result)
-                            if send_success:
-                                mode_text = "图生图" if is_img2img else "文生图"
-                                if enable_debug:
-                                    await self.send_text(f"{mode_text}完成！")
-                                # 缓存成功结果
-                                self.cache_manager.cache_result(description, model_name, image_size, strength, is_img2img, encode_result)
-                                # 安排自动撤回（如果该模型启用）
-                                await self._schedule_auto_recall_for_recent_message(model_config)
-                                return True, f"{mode_text}已完成"
+                            # 缓存成功结果
+                            self.cache_manager.cache_result(description, model_name, image_size, strength, is_img2img, encode_result)
+                            return True, encode_result, ""
                         else:
-                            await self.send_text(f"获取到图片URL，但在处理图片时失败了：{encode_result}")
-                            return False, f"图片处理失败: {encode_result}"
+                            return False, None, f"图片处理失败: {encode_result}"
                     except Exception as e:
                         logger.error(f"{self.log_prefix} 图片下载编码失败: {e!r}")
-                        await self.send_text("图片生成完成但下载时出错")
-                        return False, "图片下载失败"
+                        return False, None, "图片下载失败"
             else:
-                await self.send_text("图片生成API返回了无法处理的数据格式")
-                return False, "API返回数据格式错误"
+                return False, None, "API返回数据格式错误"
         else:
+            is_img2img = input_image_base64 is not None
             mode_text = "图生图" if is_img2img else "文生图"
-            await self.send_text(f"哎呀，{mode_text}时遇到问题：{result}")
-            return False, f"{mode_text}失败: {result}"
-        
-        # 确保所有路径都有返回值
-        return False, "未知错误"
+            return False, None, f"{mode_text}失败: {result}"
 
     def _get_model_config(self, model_id: Optional[str] = None) -> Dict[str, Any]:
         """获取指定模型的配置，支持热重载"""

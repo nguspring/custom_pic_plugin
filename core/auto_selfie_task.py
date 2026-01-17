@@ -134,7 +134,10 @@ class AutoSelfieTask(AsyncTask):
             logger.error(f"{self.log_prefix} 保存状态失败: {e}", exc_info=True)
 
     async def run(self):
-        """执行定时检查任务"""
+        """执行定时检查任务
+        
+        新逻辑：生成一次图片和配文，发送到所有符合条件的白名单流
+        """
         try:
             # 1. 检查总开关
             enabled = self.plugin.get_config("auto_selfie.enabled", False)
@@ -148,19 +151,17 @@ class AutoSelfieTask(AsyncTask):
                     logger.debug("[AutoSelfie] 当前处于睡眠时间，跳过自拍")
                 return
 
-            # 3. 遍历所有活跃的聊天流
-            # 使用新的 API 获取所有流
+            # 3. 获取所有活跃的聊天流
             from src.plugin_system.apis import chat_api
             streams = chat_api.get_all_streams(chat_api.SpecialTypes.ALL_PLATFORMS)
             
-            # 如果 streams 为空，尝试从数据库加载 (这部分逻辑在 API 中可能已处理，但为了保险起见，如果 API 返回空列表，我们尝试手动加载)
+            # 如果 streams 为空，尝试从数据库加载
             if not streams:
                 try:
                     logger.info("[AutoSelfie] 内存中无活跃流，尝试从数据库加载所有流...")
                     chat_manager = get_chat_manager()
                     if hasattr(chat_manager, "load_all_streams"):
                         await chat_manager.load_all_streams()
-                        # 重新获取
                         streams = chat_api.get_all_streams(chat_api.SpecialTypes.ALL_PLATFORMS)
                 except Exception as e:
                     logger.error(f"[AutoSelfie] 加载流失败: {e}", exc_info=True)
@@ -188,79 +189,519 @@ class AutoSelfieTask(AsyncTask):
             interval_minutes = self.plugin.get_config("auto_selfie.interval_minutes", 60)
             interval_seconds = interval_minutes * 60
 
-            # 获取名单配置
-            list_mode = self.plugin.get_config("auto_selfie.list_mode", "whitelist")
-            chat_id_list = self.plugin.get_config("auto_selfie.chat_id_list", [])
+            # 4. 筛选符合条件的白名单流
+            allowed_streams = self._filter_allowed_streams(streams)
             
-            # 兼容旧配置：如果新列表为空但旧白名单有值，则读取旧白名单
-            if not chat_id_list:
-                old_allowed = self.plugin.get_config("auto_selfie.allowed_chat_ids", [])
-                if isinstance(old_allowed, list) and old_allowed:
-                    chat_id_list = old_allowed
-
-            # 确保是列表
-            if not isinstance(chat_id_list, list):
-                chat_id_list = []
+            if not allowed_streams:
+                return
             
-            for stream in streams:
+            logger.debug(f"{self.log_prefix} 符合条件的流数量: {len(allowed_streams)}")
+            
+            # 5. 检查是否需要触发（使用第一个流作为代表进行时间检查）
+            # 新逻辑：所有流共享同一个触发状态
+            representative_stream = allowed_streams[0]
+            
+            should_trigger, trigger_type, scene_description, matched_time_point = await self._check_should_trigger(
+                representative_stream=representative_stream,
+                schedule_mode=schedule_mode,
+                target_times=target_times,
+                current_time_obj=current_time_obj,
+                current_date_str=current_date_str,
+                current_timestamp=current_timestamp,
+                interval_seconds=interval_seconds
+            )
+            
+            if not should_trigger:
+                return
+            
+            logger.info(f"{self.log_prefix} 触发自拍 (类型: {trigger_type})，将发送到 {len(allowed_streams)} 个流")
+            
+            # 6. 生成一次图片和配文
+            use_narrative = schedule_mode in ("hybrid", "times")
+            image_base64, ask_message, prompt_used = await self._generate_selfie_content_once(
+                representative_stream=representative_stream,
+                description=scene_description,
+                use_narrative_caption=use_narrative
+            )
+            
+            if not image_base64:
+                logger.warning(f"{self.log_prefix} 图片生成失败，取消发送")
+                return
+            
+            # 7. 发送到所有符合条件的流
+            success_count = 0
+            for stream in allowed_streams:
                 stream_id = stream.stream_id
-                
-                is_allowed = False
-                in_list = False
-                
-                # 优化：如果列表为空，直接根据模式判断
-                if not chat_id_list:
-                    if list_mode == "blacklist":
-                        is_allowed = True
-                    # whitelist 默认为 False (留空则默认不允许)
-                else:
-                    # 列表不为空，需检查匹配
-                    readable_ids = self._get_readable_ids(stream)
-                    if stream_id in chat_id_list:
-                        in_list = True
-                    else:
-                        for rid in readable_ids:
-                            if rid in chat_id_list:
-                                in_list = True
-                                break
+                try:
+                    # 发送图片
+                    await self._send_image_to_stream(stream, image_base64)
                     
-                    if list_mode == "whitelist":
-                        # 白名单模式：在列表中才允许
-                        if in_list:
-                            is_allowed = True
-                            logger.debug(f"[AutoSelfie] 流 {stream_id} 命中白名单，允许发送")
-                    else:
-                        # 黑名单模式：不在列表中才允许
-                        if not in_list:
-                            is_allowed = True
-                        else:
-                            logger.debug(f"[AutoSelfie] 流 {stream_id} 命中黑名单，禁止发送")
-                
-                if not is_allowed:
-                    continue
-
-                # 检查该流是否启用插件
-                if not self._is_plugin_enabled_for_stream(stream_id):
-                    continue
-
-                # 根据模式执行调度
-                if schedule_mode == "hybrid":
-                    # 混合模式：优先检查 times 时间点，然后检查 interval 补充
-                    await self._process_hybrid_mode(
-                        stream=stream,
-                        target_times=target_times,
-                        current_time_obj=current_time_obj,
-                        current_date_str=current_date_str,
-                        current_timestamp=current_timestamp,
-                        interval_seconds=interval_seconds
-                    )
-                elif schedule_mode == "times":
-                    await self._process_times_mode(stream, target_times, current_time_obj, current_date_str)
-                else:  # interval（默认）
-                    await self._process_interval_mode(stream, stream_id, current_timestamp, interval_seconds)
+                    # 发送配文
+                    if ask_message:
+                        import asyncio
+                        await asyncio.sleep(2)  # 稍微等待，让图片先展示
+                        await send_api.text_to_stream(ask_message, stream_id)
+                    
+                    success_count += 1
+                    logger.info(f"{self.log_prefix} 自拍发送成功: {stream_id}")
+                    
+                except Exception as e:
+                    logger.error(f"{self.log_prefix} 发送到流 {stream_id} 失败: {e}")
+            
+            logger.info(f"{self.log_prefix} 自拍发送完成，成功 {success_count}/{len(allowed_streams)} 个流")
+            
+            # 8. 更新所有流的状态（避免重复触发）
+            for stream in allowed_streams:
+                stream_id = stream.stream_id
+                if trigger_type == "times" and matched_time_point:
+                    if stream_id not in self.last_send_dates:
+                        self.last_send_dates[stream_id] = {}
+                    self.last_send_dates[stream_id][matched_time_point] = current_date_str
+                elif trigger_type == "interval":
+                    self.last_send_time[stream_id] = current_timestamp
+            
+            self._save_state()
 
         except Exception as e:
             logger.error(f"[AutoSelfie] 定时任务执行出错: {e}", exc_info=True)
+
+    def _filter_allowed_streams(self, streams: List) -> List:
+        """筛选符合白名单/黑名单条件的流
+        
+        Args:
+            streams: 所有聊天流列表
+            
+        Returns:
+            符合条件的流列表
+        """
+        list_mode = self.plugin.get_config("auto_selfie.list_mode", "whitelist")
+        chat_id_list = self.plugin.get_config("auto_selfie.chat_id_list", [])
+        
+        # 兼容旧配置
+        if not chat_id_list:
+            old_allowed = self.plugin.get_config("auto_selfie.allowed_chat_ids", [])
+            if isinstance(old_allowed, list) and old_allowed:
+                chat_id_list = old_allowed
+
+        if not isinstance(chat_id_list, list):
+            chat_id_list = []
+        
+        allowed_streams = []
+        
+        for stream in streams:
+            stream_id = stream.stream_id
+            is_allowed = False
+            in_list = False
+            
+            # 如果列表为空，直接根据模式判断
+            if not chat_id_list:
+                if list_mode == "blacklist":
+                    is_allowed = True
+            else:
+                # 列表不为空，需检查匹配
+                readable_ids = self._get_readable_ids(stream)
+                if stream_id in chat_id_list:
+                    in_list = True
+                else:
+                    for rid in readable_ids:
+                        if rid in chat_id_list:
+                            in_list = True
+                            break
+                
+                if list_mode == "whitelist":
+                    if in_list:
+                        is_allowed = True
+                else:  # blacklist
+                    if not in_list:
+                        is_allowed = True
+            
+            if not is_allowed:
+                continue
+
+            # 检查该流是否启用插件
+            if not self._is_plugin_enabled_for_stream(stream_id):
+                continue
+            
+            allowed_streams.append(stream)
+        
+        return allowed_streams
+
+    async def _check_should_trigger(
+        self,
+        representative_stream,
+        schedule_mode: str,
+        target_times: List[str],
+        current_time_obj: datetime,
+        current_date_str: str,
+        current_timestamp: float,
+        interval_seconds: int
+    ) -> Tuple[bool, str, Optional[str], Optional[str]]:
+        """检查是否应该触发自拍
+        
+        Args:
+            representative_stream: 代表流（用于状态检查）
+            schedule_mode: 调度模式
+            target_times: 目标时间点列表
+            current_time_obj: 当前时间对象
+            current_date_str: 当前日期字符串
+            current_timestamp: 当前时间戳
+            interval_seconds: 间隔秒数
+            
+        Returns:
+            Tuple[是否触发, 触发类型, 场景描述, 匹配的时间点]
+        """
+        stream_id = representative_stream.stream_id
+        current_hm = current_time_obj.strftime("%H:%M")
+        
+        # [DEBUG-叙事] 记录检查信息 (频率控制: 每5分钟一次)
+        should_log_debug = (current_timestamp - self._last_debug_log_time) >= self._debug_log_interval
+        if should_log_debug:
+            self._last_debug_log_time = current_timestamp
+            logger.info(f"{self.log_prefix} [DEBUG-叙事] === 触发检查 (每5分钟记录一次) ===")
+            logger.info(f"{self.log_prefix} [DEBUG-叙事] 模式: {schedule_mode}, 当前时间: {current_hm}")
+            logger.info(f"{self.log_prefix} [DEBUG-叙事] 目标时间点: {target_times}")
+        
+        # 解析自定义时间场景配置
+        time_scenes = self._parse_time_scenes()
+        
+        # 处理 times 和 hybrid 模式的时间点触发
+        if schedule_mode in ("times", "hybrid"):
+            if stream_id not in self.last_send_dates:
+                self.last_send_dates[stream_id] = {}
+            
+            for t_str in target_times:
+                if ":" not in t_str or len(t_str) != 5:
+                    continue
+                
+                # 检查是否已经发送过
+                last_date = self.last_send_dates[stream_id].get(t_str, "")
+                if last_date == current_date_str:
+                    continue
+                
+                # 检查时间是否匹配 (±2分钟窗口)
+                try:
+                    t_hour, t_minute = map(int, t_str.split(':'))
+                    target_dt = current_time_obj.replace(hour=t_hour, minute=t_minute, second=0, microsecond=0)
+                    diff = abs((current_time_obj - target_dt).total_seconds())
+                    
+                    if diff < 120:
+                        logger.info(f"{self.log_prefix} [Times] 触发时间点 {t_str} (误差 {diff:.1f}s)")
+                        
+                        # 获取场景描述
+                        scene_description = None
+                        if t_str in time_scenes:
+                            scene_description = time_scenes[t_str]
+                            logger.info(f"{self.log_prefix} 使用自定义时间场景: {t_str} -> {scene_description}")
+                        else:
+                            # 尝试从叙事管理器获取场景
+                            if self.narrative_manager is not None:
+                                try:
+                                    current_scene = self.narrative_manager.get_current_scene()
+                                    if current_scene:
+                                        scene_description = current_scene.image_prompt
+                                        logger.info(f"{self.log_prefix} 使用叙事场景: {current_scene.scene_id}")
+                                except Exception as e:
+                                    logger.warning(f"{self.log_prefix} 获取叙事场景失败: {e}")
+                            
+                            # 如果还没有场景，尝试 LLM 生成
+                            if not scene_description:
+                                enable_llm_scene = self.plugin.get_config("auto_selfie.enable_llm_scene", False)
+                                if enable_llm_scene:
+                                    scene_description = await self._generate_llm_scene()
+                        
+                        return True, "times", scene_description, t_str
+                        
+                except ValueError:
+                    continue
+        
+        # 处理 interval 模式或 hybrid 模式的 interval 补充
+        if schedule_mode == "interval" or (schedule_mode == "hybrid" and not self._is_near_times_point(current_hm, target_times, margin_minutes=30)):
+            last_time = self.last_send_time.get(stream_id, 0)
+            
+            # 首次运行
+            if last_time == 0:
+                random_wait = random.uniform(0, interval_seconds)
+                self.last_send_time[stream_id] = current_timestamp + random_wait - interval_seconds
+                self._save_state()
+                logger.info(f"{self.log_prefix} [Interval] 首次初始化，将在 {random_wait/60:.1f} 分钟后触发")
+                return False, "", None, None
+            
+            # 检查是否到达间隔
+            if current_timestamp - last_time >= interval_seconds:
+                # hybrid 模式需要概率检查
+                if schedule_mode == "hybrid":
+                    probability = self.plugin.get_config("auto_selfie.interval_probability", 0.3)
+                    if random.random() > probability:
+                        logger.debug(f"{self.log_prefix} [Hybrid-Interval] 概率检查未通过 (p={probability})")
+                        return False, "", None, None
+                
+                # 随机偏移
+                random_offset = random.uniform(-0.2, 0.2) * interval_seconds
+                if current_timestamp - last_time >= interval_seconds + random_offset:
+                    logger.info(f"{self.log_prefix} [Interval] 触发间隔自拍")
+                    
+                    # 尝试 LLM 生成场景
+                    scene_description = None
+                    enable_llm_scene = self.plugin.get_config("auto_selfie.enable_llm_scene", False)
+                    if enable_llm_scene:
+                        scene_description = await self._generate_llm_scene()
+                    
+                    return True, "interval", scene_description, None
+        
+        return False, "", None, None
+
+    async def _generate_selfie_content_once(
+        self,
+        representative_stream,
+        description: Optional[str] = None,
+        use_narrative_caption: bool = False
+    ) -> Tuple[Optional[str], str, str]:
+        """生成一次自拍图片和配文
+        
+        Args:
+            representative_stream: 代表流（用于初始化 Action）
+            description: 场景描述
+            use_narrative_caption: 是否使用叙事配文
+            
+        Returns:
+            Tuple[图片base64, 配文, 使用的prompt]
+        """
+        from .pic_action import CustomPicAction
+        
+        chat_stream = representative_stream
+        stream_id = chat_stream.stream_id
+        
+        logger.info(f"{self.log_prefix} 开始生成自拍内容 (一次生成，多次发送)")
+        
+        try:
+            # 1. 获取配置
+            style = self.plugin.get_config("auto_selfie.selfie_style", "standard")
+            model_id = self.plugin.get_config("auto_selfie.model_id", "model1")
+            
+            # 2. 生成配文
+            ask_message = ""
+            enable_narrative = self.plugin.get_config("auto_selfie.enable_narrative", True)
+            
+            if enable_narrative and use_narrative_caption and self.caption_generator is not None:
+                try:
+                    # 获取叙事上下文
+                    current_scene: Optional[NarrativeScene] = None
+                    narrative_context = ""
+                    mood = "neutral"
+                    
+                    if self.narrative_manager is not None:
+                        current_scene = self.narrative_manager.get_current_scene()
+                        narrative_context = self.narrative_manager.get_narrative_context()
+                        if self.narrative_manager.state is not None:
+                            mood = self.narrative_manager.state.current_mood
+                    
+                    # 选择配文类型
+                    caption_type = self.caption_generator.select_caption_type(
+                        scene=current_scene,
+                        narrative_context=narrative_context,
+                        current_hour=datetime.now().hour
+                    )
+                    
+                    # 确定场景描述
+                    scene_desc = ""
+                    if current_scene:
+                        scene_desc = current_scene.description
+                    elif description:
+                        scene_desc = description
+                    
+                    # 生成配文
+                    ask_message = await self.caption_generator.generate_caption(
+                        caption_type=caption_type,
+                        scene_description=scene_desc,
+                        narrative_context=narrative_context,
+                        image_prompt=description or "",
+                        mood=mood
+                    )
+                    
+                    # 标记场景完成
+                    if current_scene and self.narrative_manager is not None and ask_message:
+                        self.narrative_manager.mark_scene_completed(current_scene.scene_id, ask_message)
+                    
+                    logger.info(f"{self.log_prefix} 叙事配文生成成功: {ask_message}")
+                    
+                except Exception as e:
+                    logger.warning(f"{self.log_prefix} 叙事配文生成失败: {e}")
+                    ask_message = ""
+            
+            # 回退到传统方式
+            if not ask_message:
+                use_replyer = self.plugin.get_config("auto_selfie.use_replyer_for_ask", True)
+                if use_replyer:
+                    ask_message = await self._generate_traditional_caption(description)
+                else:
+                    templates = ["你看这张照片怎么样？", "刚刚随手拍的，好看吗？", "分享一张此刻的我~"]
+                    ask_message = random.choice(templates)
+            
+            # 3. 生成图片
+            # 构造 Mock 对象
+            class MockUserInfo:
+                def __init__(self, user_id, user_nickname, platform):
+                    self.user_id = user_id
+                    self.user_nickname = user_nickname
+                    self.platform = platform
+            
+            class MockGroupInfo:
+                def __init__(self, group_id, group_name, group_platform):
+                    self.group_id = group_id
+                    self.group_name = group_name
+                    self.group_platform = group_platform
+
+            class MockChatInfo:
+                def __init__(self, platform, group_info=None):
+                    self.platform = platform
+                    self.group_info = group_info
+
+            s_user_id = getattr(chat_stream.user_info, "user_id", "")
+            s_user_nickname = getattr(chat_stream.user_info, "user_nickname", "User")
+            s_platform = getattr(chat_stream, "platform", "unknown")
+            
+            is_group = getattr(chat_stream, "is_group", False)
+            s_group_id = getattr(chat_stream, "group_id", "") if is_group else ""
+            s_group_name = getattr(chat_stream, "group_name", "") if is_group else ""
+            
+            user_info = MockUserInfo(s_user_id, s_user_nickname, s_platform)
+            group_info = MockGroupInfo(s_group_id, s_group_name, s_platform) if is_group else None
+            chat_info = MockChatInfo(s_platform, group_info)
+            
+            mock_message = DatabaseMessages()  # type: ignore
+            mock_message.message_id = f"auto_selfie_{int(time.time())}"
+            mock_message.time = time.time()
+            mock_message.user_info = user_info  # type: ignore[assignment]
+            mock_message.chat_info = chat_info  # type: ignore[assignment]
+            mock_message.processed_plain_text = "auto selfie task"
+            
+            action_data = {
+                "description": "auto selfie",
+                "model_id": model_id,
+                "selfie_mode": True,
+                "selfie_style": style,
+                "size": ""
+            }
+            
+            action_instance = CustomPicAction(
+                action_data=action_data,
+                action_reasoning="Auto selfie task triggered",
+                cycle_timers={},
+                thinking_id="auto_selfie",
+                chat_stream=chat_stream,
+                plugin_config=self.plugin.config,
+                action_message=mock_message
+            )
+            
+            # 生成提示词
+            if description:
+                base_description = description
+            else:
+                base_description = "a casual selfie"
+            
+            # 尝试优化提示词
+            optimizer_enabled = self.plugin.get_config("prompt_optimizer.enabled", True)
+            if optimizer_enabled and not description:
+                try:
+                    from .prompt_optimizer import optimize_prompt
+                    success, optimized_prompt = await optimize_prompt(base_description, self.log_prefix)
+                    if success:
+                        base_description = optimized_prompt
+                except Exception as e:
+                    logger.warning(f"{self.log_prefix} 提示词优化失败: {e}")
+
+            prompt = action_instance._process_selfie_prompt(
+                description=base_description,
+                selfie_style=style,
+                free_hand_action="",
+                model_id=model_id
+            )
+            
+            # 获取负面提示词
+            neg_prompt = self.plugin.get_config(f"selfie.negative_prompt_{style}", "")
+            if not neg_prompt:
+                neg_prompt = self.plugin.get_config("selfie.negative_prompt", "")
+            
+            # 获取参考图
+            ref_image = action_instance._get_selfie_reference_image()
+            
+            # 执行图片生成（不发送，只获取 base64）
+            image_base64 = await action_instance._generate_image_only(
+                description=prompt,
+                model_id=model_id,
+                size="",
+                strength=0.6,
+                input_image_base64=ref_image,
+                extra_negative_prompt=neg_prompt
+            )
+            
+            return image_base64, ask_message, prompt
+            
+        except Exception as e:
+            logger.error(f"{self.log_prefix} 生成自拍内容失败: {e}", exc_info=True)
+            return None, "", ""
+
+    async def _generate_traditional_caption(self, description: Optional[str]) -> str:
+        """生成传统配文（非叙事模式）"""
+        ask_model_id = self.plugin.get_config("auto_selfie.ask_model_id", "")
+        
+        if description:
+            ask_prompt = f"""你刚刚拍了一张自拍，画面内容是：{description}。
+请生成一句简短、俏皮的询问语，询问朋友们觉得这张照片怎么样。
+要求：
+1. 语气自然，符合年轻人社交风格
+2. 可以提及照片中的场景或动作
+3. 不超过30个字
+4. 直接输出这句话，不要任何解释或前缀"""
+        else:
+            ask_prompt = "你刚刚拍了一张自拍发给对方。请生成一句简短、俏皮的询问语，问对方觉得好看吗。30字以内。直接输出这句话。"
+        
+        available_models = llm_api.get_available_models()
+        
+        # 选择模型
+        model_config = None
+        EXCLUDED_MODELS = {"embedding", "voice", "vlm", "lpmm_entity_extract", "lpmm_rdf_build"}
+        PREFERRED_MODELS = ["replyer", "planner", "utils"]
+        
+        if ask_model_id and ask_model_id in available_models:
+            model_config = available_models[ask_model_id]
+        else:
+            for model_name in PREFERRED_MODELS:
+                if model_name in available_models:
+                    model_config = available_models[model_name]
+                    break
+            if model_config is None:
+                for model_name, config in available_models.items():
+                    if model_name not in EXCLUDED_MODELS:
+                        model_config = config
+                        break
+        
+        if model_config:
+            success, content, _, _ = await llm_api.generate_with_model(
+                prompt=ask_prompt,
+                model_config=model_config,
+                request_type="plugin.auto_selfie.ask_generate",
+                temperature=0.8,
+                max_tokens=50
+            )
+            if success and content:
+                return content.strip().strip('"').strip("'").strip()
+        
+        return "你看这张照片怎么样？"
+
+    async def _send_image_to_stream(self, stream, image_base64: str):
+        """发送图片到指定流
+        
+        Args:
+            stream: 聊天流对象
+            image_base64: 图片的 base64 编码
+        """
+        from src.plugin_system.apis import send_api
+        
+        stream_id = stream.stream_id
+        
+        # 使用 send_api.image_to_stream 发送图片（接收 base64 字符串）
+        await send_api.image_to_stream(image_base64, stream_id)
 
     def _get_readable_ids(self, stream) -> List[str]:
         """获取流的可读 ID 列表"""
