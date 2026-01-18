@@ -23,7 +23,7 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name: str = "custom_pic_plugin"  # type: ignore[assignment]
-    plugin_version: str = "3.5.3"
+    plugin_version: str = "3.5.4"
     plugin_author: str = "Ptrel，Rabbit，saberlights Kiuon，nguspring"
     enable_plugin: bool = True  # type: ignore[assignment]
     dependencies: List[str] = []  # type: ignore[assignment]
@@ -454,237 +454,218 @@ class CustomPicPlugin(BasePlugin):
                 order=1
             )
         },
+        # ================================================================================
+        # 定时自拍配置 - 配置项按逻辑分组，清晰易懂
+        # ================================================================================
         "auto_selfie": {
+            # ==================== 1. 基础开关 ====================
             "enabled": ConfigField(
                 type=bool,
                 default=False,
-                description="是否启用定时自拍功能。开启后MaiBot会定时自动发送自拍，让Bot更像真人",
+                description="是否启用定时自拍功能（开启后麦麦会定时发送自拍）",
                 order=1
             ),
-            "schedule_mode": ConfigField(
-                type=str,
-                default="smart",
-                description="调度模式。smart=智能日程模式（LLM动态规划一天日程，推荐）。interval/times/hybrid为旧模式，会自动升级为smart",
-                choices=["smart", "interval", "times", "hybrid"],
+            
+            # ==================== 2. 发送时间设置 ====================
+            "schedule_times": ConfigField(
+                type=list,
+                default=["08:00", "12:00", "20:00"],
+                description="【重要】每天发送自拍的时间点列表（24小时制 HH:MM）。LLM会根据时间自动生成对应场景",
+                placeholder='["08:00", "12:00", "18:00", "21:00"]',
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
                 order=2
             ),
-            # [Smart模式] 日程生成使用的LLM模型
-            "schedule_generator_model": ConfigField(
-                type=str,
-                default="",
-                description="【Smart模式】日程生成使用的LLM模型ID。留空则使用MaiBot的replyer模型（回复模型）。注意：这里是MaiBot的文本模型，不是绘图模型",
-                placeholder="model1",
-                depends_on="auto_selfie.schedule_mode",
-                depends_value="smart",
-                order=3
-            ),
-            # [Smart模式] 每天日程条目数量范围
-            "schedule_min_entries": ConfigField(
-                type=int,
-                default=4,
-                description="【Smart模式】每天最少生成多少条日程",
-                min=1,
-                max=20,
-                depends_on="auto_selfie.schedule_mode",
-                depends_value="smart",
-                order=4
-            ),
-            "schedule_max_entries": ConfigField(
-                type=int,
-                default=8,
-                description="【Smart模式】每天最多生成多少条日程",
-                min=1,
-                max=20,
-                depends_on="auto_selfie.schedule_mode",
-                depends_value="smart",
-                order=5
-            ),
-            # [兼容旧模式] 指定发送时间点（已废弃，仅用于兼容）
-            "schedule_times": ConfigField(
-                type=list,
-                default=["08:00", "12:00", "20:00"],
-                description="【已废弃】指定发送时间点列表。旧times模式配置，现已自动升级为smart模式",
-                placeholder="[\"08:00\", \"12:00\", \"20:00\"]",
-                depends_on="auto_selfie.schedule_mode",
-                depends_value="times",
-                order=50
-            ),
-            # [兼容旧模式] 间隔时间（已废弃，仅用于兼容）
-            "interval_minutes": ConfigField(
-                type=int,
-                default=60,
-                description="【已废弃】定时自拍间隔时间（分钟）。旧interval模式配置，现已自动升级为smart模式",
-                min=1,
-                max=1440,
-                depends_on="auto_selfie.schedule_mode",
-                depends_value="interval",
-                order=51
-            ),
-            "ask_message": ConfigField(
-                type=str,
-                default="",
-                description="发完自拍后自动发送的询问语。留空则随机选择预设模板",
-                placeholder="你看这张照片怎么样？",
-                depends_on="auto_selfie.enabled",
-                depends_value=True,
-                order=5
-            ),
-            "selfie_style": ConfigField(
-                type=str,
-                default="standard",
-                description="定时自拍使用的风格。standard=标准自拍（前置摄像头），mirror=对镜自拍",
-                choices=["standard", "mirror"],
-                depends_on="auto_selfie.enabled",
-                depends_value=True,
-                order=6
-            ),
-            "model_id": ConfigField(
-                type=str,
-                default="model1",
-                description="定时自拍使用的模型ID",
-                placeholder="model1",
-                depends_on="auto_selfie.enabled",
-                depends_value=True,
-                order=7
-            ),
-            "use_replyer_for_ask": ConfigField(
-                type=bool,
-                default=True,
-                description="是否使用MaiBot的replyer模型生成询问语。开启后会根据上下文动态生成自然的询问语，关闭则使用固定询问语或随机模板",
-                depends_on="auto_selfie.enabled",
-                depends_value=True,
-                order=8
-            ),
             "sleep_mode_enabled": ConfigField(
                 type=bool,
                 default=True,
-                description="是否启用'麦麦睡觉'功能。开启后在设定时间段内不会发送定时自拍",
+                description="是否启用睡眠模式（在睡眠时间段内不发送自拍）",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=9
+                order=3
             ),
             "sleep_start_time": ConfigField(
                 type=str,
                 default="23:00",
-                description="麦麦睡觉开始时间（24小时制，格式：HH:MM）。默认23:00",
+                description="睡眠开始时间（24小时制 HH:MM）",
                 placeholder="23:00",
                 depends_on="auto_selfie.sleep_mode_enabled",
                 depends_value=True,
-                order=10
+                order=4
             ),
             "sleep_end_time": ConfigField(
                 type=str,
                 default="07:00",
-                description="麦麦睡觉结束时间（24小时制，格式：HH:MM）。默认07:00",
+                description="睡眠结束时间（24小时制 HH:MM）",
                 placeholder="07:00",
                 depends_on="auto_selfie.sleep_mode_enabled",
                 depends_value=True,
-                order=11
+                order=5
             ),
+            
+            # ==================== 3. 发送目标设置 ====================
             "list_mode": ConfigField(
                 type=str,
                 default="whitelist",
-                description="名单模式。whitelist=白名单（仅允许列表中的ID，空列表代表不允许任何人），blacklist=黑名单（排除列表中的ID，空列表代表允许所有人）",
+                description="名单模式：whitelist=仅发送到列表中的群聊，blacklist=发送到所有群聊但排除列表中的",
                 choices=["whitelist", "blacklist"],
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=12
+                order=6
             ),
             "chat_id_list": ConfigField(
                 type=list,
                 default=[],
-                description="聊天ID列表。根据模式决定是允许还是禁止。支持格式：qq:123456:private 或 qq:123456:group",
-                placeholder="[\"qq:123456:private\", \"qq:654321:group\"]",
+                description="【重要】聊天ID列表。格式：qq:群号:group 或 qq:用户ID:private",
+                placeholder='["qq:123456789:group"]',
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=7
+            ),
+            
+            # ==================== 4. 角色设定 ====================
+            "character_name": ConfigField(
+                type=str,
+                default="麦麦",
+                description="角色名称（用于场景描述生成）",
+                placeholder="麦麦",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=8
+            ),
+            "character_persona": ConfigField(
+                type=str,
+                default="一个可爱活泼的二次元女孩，喜欢美食和逛街",
+                description="角色人设（LLM会根据人设生成符合角色的场景）",
+                input_type="textarea",
+                rows=2,
+                placeholder="一个可爱活泼的二次元女孩，喜欢美食和逛街",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=9
+            ),
+            
+            # ==================== 5. 日程生成设置 ====================
+            "schedule_min_entries": ConfigField(
+                type=int,
+                default=4,
+                description="每天最少生成多少条日程",
+                min=1,
+                max=20,
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=10
+            ),
+            "schedule_max_entries": ConfigField(
+                type=int,
+                default=8,
+                description="每天最多生成多少条日程",
+                min=1,
+                max=20,
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=11
+            ),
+            "schedule_generator_model": ConfigField(
+                type=str,
+                default="",
+                description="日程生成使用的LLM模型ID（留空=使用replyer模型）。注意：这是MaiBot的文本模型，不是绘图模型",
+                placeholder="",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=12
+            ),
+            
+            # ==================== 6. 间隔补充发送 ====================
+            "enable_interval_supplement": ConfigField(
+                type=bool,
+                default=True,
+                description="是否在时间点之外随机补充发送（让发送时间更随机自然）",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
                 order=13
             ),
-            # [已废弃] 旧Interval模式的LLM场景判断，现已被Smart模式取代
-            "enable_llm_scene": ConfigField(
-                type=bool,
-                default=False,
-                description="【已废弃】旧Interval模式配置。Smart模式下场景由LLM日程自动生成，无需此配置",
-                depends_on="auto_selfie.schedule_mode",
-                depends_value="interval",
-                order=52
-            ),
-            # [已废弃] 旧模式的场景LLM模型配置
-            "scene_llm_model": ConfigField(
-                type=str,
-                default="",
-                description="【已废弃】旧模式配置。Smart模式请使用 schedule_generator_model 配置日程生成模型",
-                placeholder="model1",
-                depends_on="auto_selfie.enable_llm_scene",
+            "interval_minutes": ConfigField(
+                type=int,
+                default=120,
+                description="补充发送的最小间隔（分钟），默认120=2小时",
+                min=30,
+                max=480,
+                depends_on="auto_selfie.enable_interval_supplement",
                 depends_value=True,
-                order=53
+                order=14
             ),
-            # [已废弃] Times模式的自定义场景配置
-            "time_scenes": ConfigField(
-                type=list,
-                default=["08:00|morning coffee, cafe, sunlight", "23:00|pajamas, bed, sleepy, night light"],
-                description="【已废弃】旧Times模式配置。Smart模式下场景由LLM日程自动生成",
-                placeholder="[\"08:00|morning coffee\", \"22:00|reading book\"]",
-                depends_on="auto_selfie.schedule_mode",
-                depends_value="times",
-                order=54
-            ),
-            # 询问语生成的模型 ID（仍然有效）
-            "ask_model_id": ConfigField(
-                type=str,
-                default="",
-                description="发送自拍后附带的那句话（如'你看这张怎么样？'）由哪个LLM模型生成。此处填写MaiBot主配置中的模型ID（如model1），留空则使用系统默认模型。注意：这里是指MaiBot的文本模型，不是绘图模型。",
-                placeholder="model1",
-                depends_on="auto_selfie.use_replyer_for_ask",
-                depends_value=True,
-                order=17
-            ),
-            # [已废弃] Hybrid模式配置
             "interval_probability": ConfigField(
                 type=float,
                 default=0.3,
-                description="【已废弃】旧Hybrid模式配置。Smart模式下由LLM动态生成日程，无需此配置",
+                description="补充发送的触发概率（0.0-1.0），默认0.3=30%",
                 min=0.0,
                 max=1.0,
                 step=0.1,
-                depends_on="auto_selfie.schedule_mode",
-                depends_value="hybrid",
-                order=55
+                depends_on="auto_selfie.enable_interval_supplement",
+                depends_value=True,
+                order=15
             ),
-            # [新增] 叙事系统配置
+            
+            # ==================== 7. 图片生成设置 ====================
+            "model_id": ConfigField(
+                type=str,
+                default="model1",
+                description="定时自拍使用的绘图模型ID（对应[models.xxx]配置）",
+                placeholder="model1",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=16
+            ),
+            "selfie_style": ConfigField(
+                type=str,
+                default="standard",
+                description="自拍风格：standard=标准自拍（前置摄像头），mirror=对镜自拍",
+                choices=["standard", "mirror"],
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=17
+            ),
+            
+            # ==================== 8. 配文设置 ====================
             "enable_narrative": ConfigField(
                 type=bool,
                 default=True,
-                description="是否启用日常叙事系统。开启后，每天的自拍会形成连贯的故事线（早起→午餐→下班→晚间），配文会有承上启下感",
+                description="是否启用叙事系统（让每天的自拍形成连贯故事线）",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=18
+            ),
+            "use_replyer_for_ask": ConfigField(
+                type=bool,
+                default=True,
+                description="是否使用LLM动态生成配文（关闭则使用固定模板）",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
                 order=19
             ),
-            "narrative_script": ConfigField(
+            "ask_message": ConfigField(
                 type=str,
-                default="auto",
-                description="叙事剧本选择。auto=自动选择（工作日用default，周末用weekend），default=默认剧本，weekend=周末剧本",
-                choices=["auto", "default", "weekend"],
-                depends_on="auto_selfie.enable_narrative",
-                depends_value=True,
+                default="",
+                description="固定配文（仅当use_replyer_for_ask=false时生效，留空则随机选择）",
+                placeholder="你看这张照片怎么样？",
+                depends_on="auto_selfie.use_replyer_for_ask",
+                depends_value=False,
                 order=20
             ),
-            "narrative_context_length": ConfigField(
-                type=int,
-                default=5,
-                description="叙事上下文保留条数。用于生成有连贯感的配文时参考最近多少条记录",
-                min=1,
-                max=20,
+            "caption_model_id": ConfigField(
+                type=str,
+                default="",
+                description="配文生成使用的LLM模型ID（留空=使用replyer模型）",
+                placeholder="",
                 depends_on="auto_selfie.enable_narrative",
                 depends_value=True,
                 order=21
             ),
-            # [新增] 配文类型配置
             "caption_types": ConfigField(
                 type=list,
                 default=["narrative", "ask", "share", "monologue", "none"],
-                description="启用的配文类型列表。narrative=叙事式，ask=询问式，share=分享式，monologue=独白式，none=无配文",
+                description="配文类型列表（高级设置）：narrative=叙事式, ask=询问式, share=分享式, monologue=独白式, none=无配文",
                 placeholder='["narrative", "ask", "share", "monologue", "none"]',
                 depends_on="auto_selfie.enable_narrative",
                 depends_value=True,
@@ -693,20 +674,11 @@ class CustomPicPlugin(BasePlugin):
             "caption_weights": ConfigField(
                 type=list,
                 default=[0.35, 0.25, 0.25, 0.10, 0.05],
-                description="配文类型权重列表，与caption_types对应。所有权重之和应为1.0",
+                description="配文类型权重（高级设置），与caption_types对应，总和应为1.0",
                 placeholder="[0.35, 0.25, 0.25, 0.10, 0.05]",
                 depends_on="auto_selfie.enable_narrative",
                 depends_value=True,
                 order=23
-            ),
-            "caption_model_id": ConfigField(
-                type=str,
-                default="",
-                description="配文生成使用的LLM模型ID。此处填写MaiBot主配置中的模型ID（如model1），留空则使用MaiBot的replyer模型（回复模型）",
-                placeholder="model1",
-                depends_on="auto_selfie.enable_narrative",
-                depends_value=True,
-                order=24
             )
         },
         "prompt_optimizer": {
