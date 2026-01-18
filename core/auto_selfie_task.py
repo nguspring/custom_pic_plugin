@@ -61,8 +61,8 @@ class AutoSelfieTask(AsyncTask):
             # 首次运行，保持原有的等待逻辑
             wait_seconds = config_interval_minutes * 60
         
-        # 默认每分钟检查一次，具体是否发送由逻辑判断
-        super().__init__(task_name="Auto Selfie Task", wait_before_start=wait_seconds, run_interval=60)
+        # 默认每5分钟检查一次，具体是否发送由逻辑判断
+        super().__init__(task_name="Auto Selfie Task", wait_before_start=wait_seconds, run_interval=300)
         
         self.plugin = plugin_instance
         self.last_send_time: Dict[str, float] = {}  # interval模式: 记录每个群/用户的上次发送时间戳
@@ -1698,57 +1698,225 @@ Now generate for current time ({time_str}):"""
         """处理智能日程模式
         
         使用动态生成的日程来决定何时发送自拍以及发送什么内容。
+        采用"生成一次，发送多次"模式，只调用一次 API 生成图片和配文，
+        然后发送到所有白名单聊天流。
+        
+        v3.6.1 新增：支持随机间隔发送（作为日程的补充）
         
         Args:
             allowed_streams: 符合条件的聊天流列表
             current_time_obj: 当前时间对象
             current_date_str: 当前日期字符串
         """
-        logger.debug(f"{self.log_prefix} [Smart] 开始处理智能日程模式")
+        # [调试日志] 记录进入 Smart 模式和流数量
+        # 这是"生成一次，发送多次"模式的入口点
+        logger.info(
+            f"{self.log_prefix} [Smart] ========== 开始处理智能日程模式 =========="
+        )
+        logger.info(
+            f"{self.log_prefix} [Smart] 白名单流数量: {len(allowed_streams)}"
+        )
+        logger.info(
+            f"{self.log_prefix} [Smart] 模式: '生成一次，发送多次' - 只调用一次API生成图片和配文"
+        )
+        
+        # 初始化变量（确保在所有代码路径中都有定义）
+        matched_time: Optional[str] = None
+        fallback_key: str = f"smart_fallback_{current_date_str}"
+        is_fallback_mode = False
+        is_interval_trigger = False  # 是否是间隔补充触发
+        current_timestamp = time.time()
+        
+        # 获取配置的时间点
+        schedule_times = self.plugin.get_config(
+            "auto_selfie.schedule_times", ["08:00", "12:00", "20:00"]
+        )
+        current_hm = current_time_obj.strftime("%H:%M")
         
         # 确保日程已生成
         schedule = await self._ensure_daily_schedule()
-        if not schedule:
-            logger.warning(f"{self.log_prefix} [Smart] 无法获取日程，跳过本次检查")
-            return
+        current_entry: Optional[ScheduleEntry] = None
         
-        # 获取当前时间应该触发的条目
-        current_entry = schedule.get_current_entry(current_time_obj)
-        if not current_entry:
-            # 当前时间没有匹配的日程条目
-            logger.debug(f"{self.log_prefix} [Smart] 当前时间没有匹配的日程条目")
-            return
-        
-        # 检查该条目是否已完成
-        if current_entry.is_completed:
-            logger.debug(
-                f"{self.log_prefix} [Smart] 条目 {current_entry.time_point} 已完成，跳过"
+        if schedule:
+            # 获取当前时间应该触发的条目
+            current_entry = schedule.get_current_entry(current_time_obj)
+            if current_entry:
+                # 检查该条目是否已完成
+                if current_entry.is_completed:
+                    logger.debug(
+                        f"{self.log_prefix} [Smart] 条目 {current_entry.time_point} 已完成"
+                    )
+                    # 条目已完成，但可能需要检查间隔补充
+                    current_entry = None
+                else:
+                    logger.info(
+                        f"{self.log_prefix} [Smart] 触发日程条目: {current_entry.time_point} "
+                        f"({current_entry.activity_description})"
+                    )
+            else:
+                # 当前时间没有匹配的日程条目，但可能需要检查间隔补充
+                logger.debug(f"{self.log_prefix} [Smart] 当前时间没有匹配的日程条目")
+        else:
+            # 日程系统失败，尝试使用回退机制
+            is_fallback_mode = True
+            logger.warning(
+                f"{self.log_prefix} [Smart] 日程系统不可用，尝试使用回退机制 "
+                f"(仍采用'生成一次，发送多次'模式)"
             )
-            return
+            
+            # 检查是否在任何时间点的 ±2分钟窗口内
+            for t_str in schedule_times:
+                if ":" not in t_str or len(t_str) != 5:
+                    continue
+                try:
+                    t_hour, t_minute = map(int, t_str.split(':'))
+                    target_dt = current_time_obj.replace(hour=t_hour, minute=t_minute, second=0, microsecond=0)
+                    diff = abs((current_time_obj - target_dt).total_seconds())
+                    if diff < 120:  # 2分钟窗口
+                        matched_time = t_str
+                        break
+                except ValueError:
+                    continue
+            
+            if matched_time:
+                # 检查是否今天已经在这个时间点发送过
+                if fallback_key not in self.last_send_dates:
+                    self.last_send_dates[fallback_key] = {}
+                
+                if self.last_send_dates[fallback_key].get(matched_time) == current_date_str:
+                    logger.debug(
+                        f"{self.log_prefix} [Smart-Fallback] 时间点 {matched_time} 今天已发送"
+                    )
+                    matched_time = None  # 重置，继续检查间隔补充
+                else:
+                    logger.info(
+                        f"{self.log_prefix} [Smart-Fallback] 触发回退模式发送，时间点: {matched_time}"
+                    )
         
-        logger.info(
-            f"{self.log_prefix} [Smart] 触发日程条目: {current_entry.time_point} "
-            f"({current_entry.activity_description})"
-        )
+        # ================================================================
+        # 检查间隔补充触发（日程触发之外的随机发送）
+        # ================================================================
+        if not current_entry and not matched_time:
+            # 日程和回退都没有触发，检查间隔补充
+            enable_interval = self.plugin.get_config("auto_selfie.enable_interval_supplement", True)
+            
+            if enable_interval:
+                # 检查是否在任何时间点附近（±30分钟），如果是则不触发间隔
+                is_near_time_point = self._is_near_times_point(current_hm, schedule_times, margin_minutes=30)
+                
+                if not is_near_time_point:
+                    # 获取间隔配置
+                    interval_minutes = self.plugin.get_config("auto_selfie.interval_minutes", 120)
+                    interval_probability = self.plugin.get_config("auto_selfie.interval_probability", 0.3)
+                    interval_seconds = interval_minutes * 60
+                    
+                    # 使用全局间隔状态键（不是每个流独立的）
+                    interval_key = "smart_interval_global"
+                    last_interval_time = self.last_send_time.get(interval_key, 0)
+                    
+                    # 首次运行初始化
+                    if last_interval_time == 0:
+                        random_wait = random.uniform(0, interval_seconds)
+                        self.last_send_time[interval_key] = current_timestamp + random_wait - interval_seconds
+                        self._save_state()
+                        logger.info(
+                            f"{self.log_prefix} [Smart-Interval] 首次初始化，"
+                            f"将在 {random_wait/60:.1f} 分钟后开始检查间隔触发"
+                        )
+                    elif current_timestamp - last_interval_time >= interval_seconds:
+                        # 到达间隔时间，进行概率检查
+                        if random.random() <= interval_probability:
+                            # 增加一些随机偏移（±20%）
+                            random_offset = random.uniform(-0.2, 0.2) * interval_seconds
+                            if current_timestamp - last_interval_time >= interval_seconds + random_offset:
+                                is_interval_trigger = True
+                                logger.info(
+                                    f"{self.log_prefix} [Smart-Interval] 触发间隔补充发送 "
+                                    f"(间隔: {interval_minutes}分钟, 概率: {interval_probability*100:.0f}%)"
+                                )
+                        else:
+                            logger.debug(
+                                f"{self.log_prefix} [Smart-Interval] 概率检查未通过 "
+                                f"(p={interval_probability*100:.0f}%)"
+                            )
+                else:
+                    logger.debug(
+                        f"{self.log_prefix} [Smart-Interval] 在时间点附近（±30分钟），跳过间隔检查"
+                    )
+            
+            # 如果都没有触发，直接返回
+            if not is_interval_trigger:
+                logger.debug(f"{self.log_prefix} [Smart] 无触发条件，等待下一次检查")
+                return
         
-        # 使用第一个流作为代表生成图片和配文
+        # ================================================================
+        # 关键：使用第一个流作为代表生成图片和配文（只生成一次）
+        # ================================================================
         representative_stream = allowed_streams[0]
         
-        # 生成图片和配文（使用 schedule_entry）
-        image_base64, caption, prompt_used = await self._generate_selfie_content_with_entry(
-            representative_stream=representative_stream,
-            schedule_entry=current_entry,
+        # 确定触发类型
+        trigger_type = "日程条目" if current_entry else ("回退时间点" if matched_time else "间隔补充")
+        logger.info(
+            f"{self.log_prefix} [Smart] 【生成阶段】触发类型: {trigger_type}"
         )
+        logger.info(
+            f"{self.log_prefix} [Smart] 【生成阶段】使用代表流 {representative_stream.stream_id} 生成内容"
+        )
+        logger.info(
+            f"{self.log_prefix} [Smart] 【重要】只调用一次图片生成API，然后复用结果发送到所有流"
+        )
+        
+        # 生成图片和配文（只调用一次）
+        if current_entry:
+            # 使用日程条目生成
+            logger.info(f"{self.log_prefix} [Smart] 使用日程条目模式生成内容")
+            image_base64, caption, prompt_used = await self._generate_selfie_content_with_entry(
+                representative_stream=representative_stream,
+                schedule_entry=current_entry,
+            )
+        elif is_interval_trigger:
+            # 间隔补充模式：使用 LLM 生成场景
+            logger.info(f"{self.log_prefix} [Smart-Interval] 使用间隔补充模式生成内容")
+            scene_description = await self._generate_llm_scene()
+            image_base64, caption, prompt_used = await self._generate_selfie_content_once(
+                representative_stream=representative_stream,
+                description=scene_description,
+                use_narrative_caption=True,
+            )
+        else:
+            # 回退模式：使用回退方式生成（无日程条目）
+            logger.info(f"{self.log_prefix} [Smart] 使用回退模式生成内容")
+            image_base64, caption, prompt_used = await self._generate_selfie_content_once(
+                representative_stream=representative_stream,
+                description=None,
+                use_narrative_caption=True,
+            )
         
         if not image_base64:
             logger.warning(f"{self.log_prefix} [Smart] 图片生成失败，取消发送")
             return
         
-        # 发送到所有符合条件的流
+        # ================================================================
+        # 关键：发送到所有符合条件的流（使用相同的图片和配文）
+        # ================================================================
+        logger.info(
+            f"{self.log_prefix} [Smart] 【发送阶段】图片生成成功，开始发送到 {len(allowed_streams)} 个流"
+        )
+        logger.info(
+            f"{self.log_prefix} [Smart] 【重要】以下所有流将收到相同的图片和配文"
+        )
+        
+        # 记录所有目标流
+        stream_ids = [s.stream_id for s in allowed_streams]
+        logger.info(f"{self.log_prefix} [Smart] 目标流列表: {stream_ids}")
+        
+        # 发送到所有符合条件的流（使用相同的图片和配文）
         success_count = 0
-        for stream in allowed_streams:
+        for idx, stream in enumerate(allowed_streams, 1):
             stream_id = stream.stream_id
             try:
+                logger.info(f"{self.log_prefix} [Smart] [{idx}/{len(allowed_streams)}] 发送到流: {stream_id}")
+                
                 # 发送图片
                 await self._send_image_to_stream(stream, image_base64)
                 
@@ -1759,24 +1927,42 @@ Now generate for current time ({time_str}):"""
                     await send_api.text_to_stream(caption, stream_id)
                 
                 success_count += 1
-                logger.info(f"{self.log_prefix} [Smart] 自拍发送成功: {stream_id}")
+                logger.info(f"{self.log_prefix} [Smart] [{idx}/{len(allowed_streams)}] 发送成功: {stream_id}")
                 
             except Exception as e:
-                logger.error(f"{self.log_prefix} [Smart] 发送到流 {stream_id} 失败: {e}")
+                logger.error(f"{self.log_prefix} [Smart] [{idx}/{len(allowed_streams)}] 发送失败: {stream_id} - {e}")
         
         logger.info(
-            f"{self.log_prefix} [Smart] 自拍发送完成，"
-            f"成功 {success_count}/{len(allowed_streams)} 个流"
+            f"{self.log_prefix} [Smart] ========== 自拍发送完成 =========="
+        )
+        logger.info(
+            f"{self.log_prefix} [Smart] 发送结果: 成功 {success_count}/{len(allowed_streams)} 个流"
         )
         
-        # 标记条目完成并保存
-        schedule.mark_entry_completed(current_entry.time_point, caption)
-        if self.schedule_generator is not None:
-            schedule.save_to_file(self.schedule_generator.get_schedule_file_path())
-        
-        # 更新缓存
-        with self._schedule_lock:
-            self.current_schedule = schedule
+        # 标记完成并保存
+        if current_entry and schedule:
+            # 正常模式：标记日程条目完成
+            schedule.mark_entry_completed(current_entry.time_point, caption)
+            if self.schedule_generator is not None:
+                schedule.save_to_file(self.schedule_generator.get_schedule_file_path())
+            
+            # 更新缓存
+            with self._schedule_lock:
+                self.current_schedule = schedule
+            logger.debug(f"{self.log_prefix} [Smart] 日程条目已标记完成: {current_entry.time_point}")
+        elif is_fallback_mode and matched_time:
+            # 回退模式：记录发送状态
+            if fallback_key not in self.last_send_dates:
+                self.last_send_dates[fallback_key] = {}
+            self.last_send_dates[fallback_key][matched_time] = current_date_str
+            self._save_state()
+            logger.debug(f"{self.log_prefix} [Smart-Fallback] 发送状态已保存: {matched_time}")
+        elif is_interval_trigger:
+            # 间隔补充模式：更新间隔计时器
+            interval_key = "smart_interval_global"
+            self.last_send_time[interval_key] = current_timestamp
+            self._save_state()
+            logger.debug(f"{self.log_prefix} [Smart-Interval] 间隔计时器已更新")
 
     async def _generate_selfie_content_with_entry(
         self,

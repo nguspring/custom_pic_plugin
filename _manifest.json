@@ -1,8 +1,8 @@
 {
   "manifest_version": 1,
   "name": "自定义智能多模型图片生成插件（custom_pic_plugin）",
-  "version": "3.5.2",
-  "description": "智能多模型图片生成插件，支持文生图和图生图自动识别。兼容OpenAI、豆包、Gemini、魔搭等多种API格式。v3.5.2统一使用Smart模式：通过LLM动态生成每日日程+场景触发，人物动作完全由场景决定，实现最自然的真人感自拍体验。内置7个魔搭模型预设。本插件完全符合 MaiBot 插件开发标准。",
+  "version": "3.5.3",
+  "description": "智能多模型图片生成插件，支持文生图和图生图自动识别。兼容OpenAI、豆包、Gemini、魔搭等多种API格式。v3.5.3统一使用Smart模式：通过LLM动态生成每日日程+场景触发，新增间隔补充发送功能让自拍时间更加随机自然，实现最自然的真人感自拍体验。内置7个魔搭模型预设。本插件完全符合 MaiBot 插件开发标准。",
   "author": {
     "name": "Ptrel，Rabbit-Jia-Er，saberlights Kiuon，nguspring",
     "url": "https://github.com/nguspring/custom_pic_plugin"
