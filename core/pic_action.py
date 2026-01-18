@@ -1139,27 +1139,6 @@ class CustomPicAction(BaseAction):
                 else ["08:00", "12:00", "20:00"]
             )
             
-            # 优先读取插件配置，如果为空则使用主程序配置
-            character_name = self.get_config("auto_selfie.character_name", "")
-            if not character_name:
-                try:
-                    from src.config.config import global_config
-                    character_name = global_config.bot.nickname or "麦麦"
-                    logger.debug(f"{self.log_prefix} 使用主程序配置的角色名称: {character_name}")
-                except Exception:
-                    character_name = "麦麦"
-            character_name = str(character_name)
-            
-            character_persona = self.get_config("auto_selfie.character_persona", "")
-            if not character_persona:
-                try:
-                    from src.config.config import global_config
-                    character_persona = global_config.personality.personality or "一个可爱的二次元女孩"
-                    logger.debug(f"{self.log_prefix} 使用主程序配置的角色人设: {character_persona[:50]}...")
-                except Exception:
-                    character_persona = "一个可爱的二次元女孩"
-            character_persona = str(character_persona)
-            
             weather: str = str(
                 self.get_config("auto_selfie.weather", "晴天") or "晴天"
             )
@@ -1169,8 +1148,6 @@ class CustomPicAction(BaseAction):
             # 获取或生成日程
             schedule = await schedule_generator.get_or_generate_schedule(
                 date=today,
-                character_name=character_name,
-                character_persona=character_persona,
                 schedule_times=schedule_times,
                 weather=weather,
                 is_holiday=is_holiday,

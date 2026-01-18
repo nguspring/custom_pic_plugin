@@ -2,12 +2,12 @@
 
 > **修改版说明**：本仓库为原版插件的修改版，由 nguspring 维护。
 > - 原版仓库：https://github.com/nguspring/custom_pic_plugin
-> - 修改版版本：v3.5.0-beta.4
+> - 修改版版本：v3.5.0-beta.5
 > - 修改说明：详见 [新功能添加说明.md](新功能添加说明.md)
 >
 > **修改版定位**：本修改版专注于**定时发送自拍**功能，让Bot更像真人；同时主要对**魔搭模型**进行优化，内置7个精选魔搭模型预设配置，提供开箱即用的体验。
 
-基于 Maibot 插件的智能多模型图片生成插件，支持文生图和图生图自动识别。兼容OpenAI、豆包、Gemini、魔搭等多种API格式。提供命令式风格转换、模型配置管理、结果缓存等功能。**v3.5.0-beta.4 简化配置结构：重写 auto_selfie 配置部分，添加详细中文注释，新增 schedule_times、character_name、character_persona 配置项，删除废弃配置项，让用户配置更加清晰易懂。**
+基于 Maibot 插件的智能多模型图片生成插件，支持文生图和图生图自动识别。兼容OpenAI、豆包、Gemini、魔搭等多种API格式。提供命令式风格转换、模型配置管理、结果缓存等功能。**v3.5.0-beta.5 简化角色配置：移除 character_name 和 character_persona 配置项，改为自动从 MaiBot 主配置（bot.nickname 和 personality.personality）读取角色信息，完全使用 selfie.prompt_prefix 控制人物外观，确保人设稳定性。**
 
 魔搭 api 的优点是调用免费，AI 绘图本身配置需求并不是很高，但是平台收费又都比较贵，魔搭社区有按天计算的免费调用限额，对应麦麦的绘图需求来说完全足够。如果想接其他风格绘图的可以使用豆包和 GPT 模型。
 
@@ -68,14 +68,10 @@
 [auto_selfie]
 schedule_mode = "smart"
 schedule_times = ["08:00", "12:00", "18:00", "21:00"]
-
-# 角色设定（可选，影响日程生成）
-character_name = "麦麦"
-character_persona = "一个可爱活泼的二次元女孩，喜欢美食和逛街"
 ```
 
 **特点：**
-- 🤖 LLM 根据时间点、角色人设、天气等动态生成当天日程
+- 🤖 LLM 根据时间点、天气等动态生成当天日程
 - 🎬 每个时间点包含完整场景描述：地点、姿势、表情、服装、动作
 - 🎭 人物动作由场景决定，不使用随机的 hand_actions
 - 🔄 日程每天自动更新，保持新鲜感
@@ -320,6 +316,24 @@ Smart 模式引入了以下新的核心模块：
 **我的期望**：希望通过统一 TTS 语音合成插件、修改版 custom_pic_plugin 插件、A_MIND 插件、Mai_Only_You 插件这四个插件，塑造出一个真实的麦麦来陪伴用户。让麦麦不仅能用声音与用户交流，还能主动分享自己的生活照片，拥有自己的记忆和情感，成为一个真正有温度的数字伙伴。
 
 ## 📝 更新日志
+
+### v3.5.0-beta.5 (修改版)
+
+**🗑️ 移除角色配置功能**
+
+本版本完全移除了 `character_name` 和 `character_persona` 功能，简化日程生成流程。人物外观特征完全由 `selfie.prompt_prefix` 控制，确保人设稳定性。
+
+**配置变更：**
+- 🗑️ **移除 character_name**：日程生成不再使用角色名称
+- 🗑️ **移除 character_persona**：日程生成不再使用角色人设
+- ✅ **完全使用 selfie.prompt_prefix**：人物外观特征（发色、瞳色等）完全由 `selfie.prompt_prefix` 控制，确保人设稳定性
+
+**技术改进：**
+- 🔧 **schedule_generator.py**：移除 `_get_character_from_maibot_config()` 方法，简化 Prompt 模板
+- 🔧 **函数签名简化**：`_build_generation_prompt()` 和 `_generate_fallback_schedule()` 移除 character_name/character_persona 参数
+- 🔧 **代码清理**：移除 pic_action.py 和 auto_selfie_task.py 中读取这两个配置项的代码
+
+---
 
 ### v3.5.0-beta.4 (修改版)
 

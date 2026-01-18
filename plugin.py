@@ -23,7 +23,7 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name: str = "custom_pic_plugin"  # type: ignore[assignment]
-    plugin_version: str = "3.5.0-beta.4"
+    plugin_version: str = "3.5.0-beta.5"
     plugin_author: str = "Ptrel，Rabbit，saberlights Kiuon，nguspring"
     enable_plugin: bool = True  # type: ignore[assignment]
     dependencies: List[str] = []  # type: ignore[assignment]
@@ -175,7 +175,7 @@ class CustomPicPlugin(BasePlugin):
             ),
             "config_version": ConfigField(
                 type=str,
-                default="3.5.0-beta.4",
+                default="3.5.0-beta.5",
                 description="插件配置版本号",
                 disabled=True,
                 order=2
@@ -523,29 +523,7 @@ class CustomPicPlugin(BasePlugin):
                 order=7
             ),
             
-            # ==================== 4. 角色设定 ====================
-            "character_name": ConfigField(
-                type=str,
-                default="",
-                description="角色名称（留空则自动使用 MaiBot 主配置 bot.nickname）",
-                placeholder="留空=使用主配置",
-                depends_on="auto_selfie.enabled",
-                depends_value=True,
-                order=8
-            ),
-            "character_persona": ConfigField(
-                type=str,
-                default="",
-                description="角色人设（留空则自动使用 MaiBot 主配置 personality.personality）",
-                input_type="textarea",
-                rows=2,
-                placeholder="留空=使用主配置的人设",
-                depends_on="auto_selfie.enabled",
-                depends_value=True,
-                order=9
-            ),
-            
-            # ==================== 5. 日程生成设置 ====================
+            # ==================== 4. 日程生成设置 ====================
             "schedule_min_entries": ConfigField(
                 type=int,
                 default=4,
@@ -554,7 +532,7 @@ class CustomPicPlugin(BasePlugin):
                 max=20,
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=10
+                order=8
             ),
             "schedule_max_entries": ConfigField(
                 type=int,
@@ -564,7 +542,7 @@ class CustomPicPlugin(BasePlugin):
                 max=20,
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=11
+                order=9
             ),
             "schedule_generator_model": ConfigField(
                 type=str,
@@ -573,17 +551,17 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=12
+                order=10
             ),
             
-            # ==================== 6. 间隔补充发送 ====================
+            # ==================== 5. 间隔补充发送 ====================
             "enable_interval_supplement": ConfigField(
                 type=bool,
                 default=True,
                 description="是否在时间点之外随机补充发送（让发送时间更随机自然）",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=13
+                order=11
             ),
             "interval_minutes": ConfigField(
                 type=int,
@@ -593,7 +571,7 @@ class CustomPicPlugin(BasePlugin):
                 max=480,
                 depends_on="auto_selfie.enable_interval_supplement",
                 depends_value=True,
-                order=14
+                order=12
             ),
             "interval_probability": ConfigField(
                 type=float,
@@ -604,10 +582,10 @@ class CustomPicPlugin(BasePlugin):
                 step=0.1,
                 depends_on="auto_selfie.enable_interval_supplement",
                 depends_value=True,
-                order=15
+                order=13
             ),
             
-            # ==================== 7. 图片生成设置 ====================
+            # ==================== 6. 图片生成设置 ====================
             "model_id": ConfigField(
                 type=str,
                 default="model1",
@@ -615,7 +593,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="model1",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=16
+                order=14
             ),
             "selfie_style": ConfigField(
                 type=str,
@@ -624,17 +602,17 @@ class CustomPicPlugin(BasePlugin):
                 choices=["standard", "mirror"],
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=17
+                order=15
             ),
             
-            # ==================== 8. 配文设置 ====================
+            # ==================== 7. 配文设置 ====================
             "enable_narrative": ConfigField(
                 type=bool,
                 default=True,
                 description="是否启用叙事系统（让每天的自拍形成连贯故事线）",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=18
+                order=16
             ),
             "use_replyer_for_ask": ConfigField(
                 type=bool,
@@ -642,7 +620,7 @@ class CustomPicPlugin(BasePlugin):
                 description="是否使用LLM动态生成配文（关闭则使用固定模板）",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=19
+                order=17
             ),
             "ask_message": ConfigField(
                 type=str,
@@ -651,7 +629,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="你看这张照片怎么样？",
                 depends_on="auto_selfie.use_replyer_for_ask",
                 depends_value=False,
-                order=20
+                order=18
             ),
             "caption_model_id": ConfigField(
                 type=str,
@@ -660,7 +638,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="",
                 depends_on="auto_selfie.enable_narrative",
                 depends_value=True,
-                order=21
+                order=19
             ),
             "caption_types": ConfigField(
                 type=list,
@@ -669,7 +647,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder='["narrative", "ask", "share", "monologue", "none"]',
                 depends_on="auto_selfie.enable_narrative",
                 depends_value=True,
-                order=22
+                order=20
             ),
             "caption_weights": ConfigField(
                 type=list,
@@ -678,7 +656,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="[0.35, 0.25, 0.25, 0.10, 0.05]",
                 depends_on="auto_selfie.enable_narrative",
                 depends_value=True,
-                order=23
+                order=21
             )
         },
         "prompt_optimizer": {

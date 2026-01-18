@@ -1,7 +1,7 @@
 """
 日程生成器模块
 
-使用 LLM 动态生成每日日程，支持根据角色人设和时间点生成完整的场景描述。
+使用 LLM 动态生成每日日程，支持根据时间点生成完整的场景描述。
 """
 
 import json
@@ -18,12 +18,10 @@ logger = get_logger("ScheduleGenerator")
 
 
 # Prompt 模板
-SCHEDULE_GENERATION_PROMPT = """你是{character_name}，{character_persona}
-
-今天是{date}，{day_of_week}，天气{weather}。
+SCHEDULE_GENERATION_PROMPT = """今天是{date}，{day_of_week}，天气{weather}。
 {holiday_note}
 
-请为今天的以下时间点规划活动，每个时间点需要包含完整的场景描述：
+请为一个可爱的女孩规划今天的以下时间点的活动，每个时间点需要包含完整的场景描述：
 时间点列表：{schedule_times}
 
 对于每个时间点，请提供以下信息（JSON格式）：
@@ -71,7 +69,7 @@ SCHEDULE_GENERATION_PROMPT = """你是{character_name}，{character_persona}
 - MONOLOGUE: 独白式（自言自语）
 
 ## 重要规则
-1. 活动安排符合真实生活逻辑和你的人设
+1. 活动安排符合真实生活逻辑
 2. 场景描述生动具体，适合生成自拍图片
 3. 表情和情绪要与活动匹配
 4. 时间范围应该合理（通常1-2小时）
@@ -106,8 +104,6 @@ class ScheduleGenerator:
     async def generate_daily_schedule(
         self,
         date: str,
-        character_name: str,
-        character_persona: str,
         schedule_times: List[str],
         weather: str = "晴天",
         is_holiday: bool = False,
@@ -117,8 +113,6 @@ class ScheduleGenerator:
 
         Args:
             date: 日期 YYYY-MM-DD
-            character_name: 角色名称
-            character_persona: 角色人设
             schedule_times: 配置的时间点列表 ["08:00", "12:00", "20:00"]
             weather: 天气
             is_holiday: 是否假期
@@ -141,8 +135,6 @@ class ScheduleGenerator:
 
             # 构建 Prompt
             prompt = self._build_generation_prompt(
-                character_name=character_name,
-                character_persona=character_persona,
                 schedule_times=schedule_times,
                 day_of_week=day_of_week,
                 weather=weather,
@@ -162,7 +154,6 @@ class ScheduleGenerator:
                     day_of_week=day_of_week,
                     is_holiday=is_holiday,
                     weather=weather,
-                    character_persona=character_persona,
                     schedule_times=schedule_times,
                 )
 
@@ -173,7 +164,6 @@ class ScheduleGenerator:
                 day_of_week=day_of_week,
                 is_holiday=is_holiday,
                 weather=weather,
-                character_persona=character_persona,
             )
 
             if schedule and self._validate_schedule(schedule):
@@ -188,7 +178,6 @@ class ScheduleGenerator:
                     day_of_week=day_of_week,
                     is_holiday=is_holiday,
                     weather=weather,
-                    character_persona=character_persona,
                     schedule_times=schedule_times,
                 )
 
@@ -202,14 +191,11 @@ class ScheduleGenerator:
                 day_of_week=day_of_week if "day_of_week" in dir() else "未知",
                 is_holiday=is_holiday,
                 weather=weather,
-                character_persona=character_persona,
                 schedule_times=schedule_times,
             )
 
     def _build_generation_prompt(
         self,
-        character_name: str,
-        character_persona: str,
         schedule_times: List[str],
         day_of_week: str,
         weather: str,
@@ -220,8 +206,6 @@ class ScheduleGenerator:
         构建生成日程的 Prompt
 
         Args:
-            character_name: 角色名称
-            character_persona: 角色人设
             schedule_times: 时间点列表
             day_of_week: 星期几
             weather: 天气
@@ -238,8 +222,6 @@ class ScheduleGenerator:
         )
 
         prompt = SCHEDULE_GENERATION_PROMPT.format(
-            character_name=character_name,
-            character_persona=character_persona,
             date=date,
             day_of_week=day_of_week,
             weather=weather,
@@ -385,7 +367,6 @@ class ScheduleGenerator:
         day_of_week: str,
         is_holiday: bool,
         weather: str,
-        character_persona: str,
     ) -> Optional[DailySchedule]:
         """
         解析 LLM 响应为 DailySchedule
@@ -396,7 +377,6 @@ class ScheduleGenerator:
             day_of_week: 星期几
             is_holiday: 是否假期
             weather: 天气
-            character_persona: 角色人设
 
         Returns:
             DailySchedule 实例，失败时返回 None
@@ -423,7 +403,7 @@ class ScheduleGenerator:
                 day_of_week=day_of_week,
                 is_holiday=is_holiday,
                 weather=weather,
-                character_persona=character_persona,
+                character_persona="",  # 不再使用角色人设
                 generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 model_used="llm",
             )
@@ -587,7 +567,6 @@ class ScheduleGenerator:
         day_of_week: str,
         is_holiday: bool,
         weather: str,
-        character_persona: str,
         schedule_times: List[str],
     ) -> DailySchedule:
         """
@@ -600,7 +579,6 @@ class ScheduleGenerator:
             day_of_week: 星期几
             is_holiday: 是否假期
             weather: 天气
-            character_persona: 角色人设
             schedule_times: 时间点列表
 
         Returns:
@@ -613,7 +591,7 @@ class ScheduleGenerator:
             day_of_week=day_of_week,
             is_holiday=is_holiday,
             weather=weather,
-            character_persona=character_persona,
+            character_persona="",  # 不再使用角色人设
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             model_used="fallback",
         )
@@ -844,8 +822,6 @@ class ScheduleGenerator:
     async def get_or_generate_schedule(
         self,
         date: str,
-        character_name: str,
-        character_persona: str,
         schedule_times: List[str],
         weather: str = "晴天",
         is_holiday: bool = False,
@@ -858,8 +834,6 @@ class ScheduleGenerator:
 
         Args:
             date: 日期
-            character_name: 角色名称
-            character_persona: 角色人设
             schedule_times: 时间点列表
             weather: 天气
             is_holiday: 是否假期
@@ -877,11 +851,9 @@ class ScheduleGenerator:
                 logger.info(f"从文件加载已有日程: {date}")
                 return existing
 
-        # 生成新日程
+        # 生成新日程（角色信息在 generate_daily_schedule 内部自动获取）
         schedule = await self.generate_daily_schedule(
             date=date,
-            character_name=character_name,
-            character_persona=character_persona,
             schedule_times=schedule_times,
             weather=weather,
             is_holiday=is_holiday,
