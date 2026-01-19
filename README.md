@@ -1,13 +1,32 @@
-# Custom Pic Plugin - 智能多模型图片生成插件
+# 🎨 画家麦麦的自拍日常
 
-> **修改版说明**：本仓库为原版插件的修改版，由 nguspring 维护。
-> - 原版仓库：https://github.com/nguspring/custom_pic_plugin
-> - 修改版版本：v3.5.0-beta.5
-> - 修改说明：详见 [新功能添加说明.md](新功能添加说明.md)
->
-> **修改版定位**：本修改版专注于**定时发送自拍**功能，让Bot更像真人；同时主要对**魔搭模型**进行优化，内置7个精选魔搭模型预设配置，提供开箱即用的体验。
+<p align="center">
+  <strong>集智能绘画与自拍生成于一体的 MaiBot 插件</strong>
+</p>
 
-基于 Maibot 插件的智能多模型图片生成插件，支持文生图和图生图自动识别。兼容OpenAI、豆包、Gemini、魔搭等多种API格式。提供命令式风格转换、模型配置管理、结果缓存等功能。**v3.5.0-beta.5 简化角色配置：移除 character_name 和 character_persona 配置项，改为自动从 MaiBot 主配置（bot.nickname 和 personality.personality）读取角色信息，完全使用 selfie.prompt_prefix 控制人物外观，确保人设稳定性。**
+<p align="center">
+  <img src="https://img.shields.io/badge/版本-v3.5.0--beta.6-blue" alt="Version">
+  <img src="https://img.shields.io/badge/MaiBot-0.10.x-green" alt="MaiBot">
+  <img src="https://img.shields.io/badge/License-AGPL--3.0-orange" alt="License">
+</p>
+
+---
+
+> 📦 **仓库信息**
+> - 维护者：nguspring
+> - 版本：v3.5.0-beta.6
+> - 更新日志：详见 [新功能添加说明.md](新功能添加说明.md)
+
+## 💡 插件定位
+
+**画家麦麦的自拍日常** = 🎨 **画图功能** + 📸 **自拍功能**
+
+| 功能 | 描述 |
+|------|------|
+| 🎨 **画图** | 支持文生图/图生图智能识别，兼容 OpenAI、豆包、Gemini、魔搭等多种 API，命令式风格转换，内置 7 个魔搭模型预设 |
+| 📸 **自拍** | 智能日程规划，动态场景描述，自动配文生成，支持自定义人设注入让配文更符合角色设定 |
+
+**v3.5.0-beta.6 新功能**：新增人设注入功能，配文和日程生成都支持自定义人设描述和回复风格，让生成的内容更符合你的角色设定！
 
 魔搭 api 的优点是调用免费，AI 绘图本身配置需求并不是很高，但是平台收费又都比较贵，魔搭社区有按天计算的免费调用限额，对应麦麦的绘图需求来说完全足够。如果想接其他风格绘图的可以使用豆包和 GPT 模型。
 
@@ -316,6 +335,37 @@ Smart 模式引入了以下新的核心模块：
 **我的期望**：希望通过统一 TTS 语音合成插件、修改版 custom_pic_plugin 插件、A_MIND 插件、Mai_Only_You 插件这四个插件，塑造出一个真实的麦麦来陪伴用户。让麦麦不仅能用声音与用户交流，还能主动分享自己的生活照片，拥有自己的记忆和情感，成为一个真正有温度的数字伙伴。
 
 ## 📝 更新日志
+
+### v3.5.0-beta.6 (修改版)
+
+**🎭 人设注入功能**
+
+本版本新增人设注入功能，让配文和日程生成更符合角色设定。
+
+**新增功能：**
+- 🆕 **配文人设注入**：支持自定义人设描述和回复风格，让自拍配文更符合角色个性
+  - `caption_persona_enabled`: 是否启用配文人设（默认 true）
+  - `caption_persona_text`: 人设描述文本
+  - `caption_reply_style`: 回复风格指导
+- 🆕 **日程人设注入**：支持自定义人设和生活方式，让日程安排更符合角色特点
+  - `schedule_persona_enabled`: 是否启用日程人设（默认 true）
+  - `schedule_persona_text`: 日程人设描述
+  - `schedule_lifestyle`: 生活方式描述
+
+**配置示例：**
+```toml
+# 配文人设配置
+caption_persona_enabled = true
+caption_persona_text = "你是一个可爱、活泼的女孩子，说话温柔但偶尔会有点小傲娇"
+caption_reply_style = "语气自然亲切，像是在和好朋友聊天"
+
+# 日程人设配置
+schedule_persona_enabled = true
+schedule_persona_text = "你是一个热爱生活的年轻人，喜欢尝试新事物"
+schedule_lifestyle = "日常作息规律，喜欢早起，周末会出门逛街"
+```
+
+---
 
 ### v3.5.0-beta.5 (修改版)
 
