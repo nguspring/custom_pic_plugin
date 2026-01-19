@@ -125,6 +125,54 @@ class CaptionGenerator:
         self.plugin = plugin_instance
         logger.info("CaptionGenerator 初始化完成")
 
+    # ==================== 人设注入 ====================
+
+    def _get_persona_block(self) -> str:
+        """获取人设配置并构建人设提示块
+        
+        根据用户配置的人设描述和表达风格，构建注入到 prompt 前的人设块。
+        
+        Returns:
+            构建好的人设提示块字符串，如果未启用则返回空字符串
+        """
+        # 检查是否启用人设注入
+        persona_enabled = self.plugin.get_config("auto_selfie.caption_persona_enabled", True)
+        
+        if not persona_enabled:
+            logger.debug("人设注入未启用")
+            return ""
+        
+        # 获取人设配置
+        persona_text = self.plugin.get_config(
+            "auto_selfie.caption_persona_text",
+            "是一个喜欢分享日常的女生"
+        )
+        reply_style = self.plugin.get_config(
+            "auto_selfie.caption_reply_style",
+            "语气自然，符合年轻人社交风格"
+        )
+        
+        # 如果两个配置都为空，返回空字符串
+        if not persona_text and not reply_style:
+            logger.debug("人设和风格配置均为空，跳过注入")
+            return ""
+        
+        # 构建人设块
+        persona_block_parts = []
+        
+        if persona_text:
+            persona_block_parts.append(f"【你的人设】\n你{persona_text}")
+        
+        if reply_style:
+            persona_block_parts.append(f"【表达风格】\n{reply_style}")
+        
+        persona_block = "\n\n".join(persona_block_parts)
+        
+        logger.info(f"[DEBUG-叙事] 人设注入已启用，人设块长度: {len(persona_block)}")
+        logger.debug(f"人设块内容: {persona_block[:100]}...")
+        
+        return persona_block + "\n\n"
+
     # ==================== 配文类型选择 ====================
 
     def select_caption_type(
@@ -276,7 +324,10 @@ class CaptionGenerator:
         if not narrative_context:
             narrative_context = "今天还没有发过自拍。"
 
-        prompt = self.PROMPT_TEMPLATES[CaptionType.NARRATIVE].format(
+        # 获取人设块并注入到 prompt 前面
+        persona_block = self._get_persona_block()
+        
+        prompt = persona_block + self.PROMPT_TEMPLATES[CaptionType.NARRATIVE].format(
             scene_description=scene_description or "日常",
             narrative_context=narrative_context,
             mood=mood,
@@ -300,7 +351,10 @@ class CaptionGenerator:
         Returns:
             生成的询问式配文
         """
-        prompt = self.PROMPT_TEMPLATES[CaptionType.ASK].format(
+        # 获取人设块并注入到 prompt 前面
+        persona_block = self._get_persona_block()
+        
+        prompt = persona_block + self.PROMPT_TEMPLATES[CaptionType.ASK].format(
             scene_description=scene_description or "自拍",
             mood=mood,
         )
@@ -323,7 +377,10 @@ class CaptionGenerator:
         Returns:
             生成的分享式配文
         """
-        prompt = self.PROMPT_TEMPLATES[CaptionType.SHARE].format(
+        # 获取人设块并注入到 prompt 前面
+        persona_block = self._get_persona_block()
+        
+        prompt = persona_block + self.PROMPT_TEMPLATES[CaptionType.SHARE].format(
             scene_description=scene_description or "日常",
             mood=mood,
         )
@@ -344,7 +401,10 @@ class CaptionGenerator:
         Returns:
             生成的独白式配文
         """
-        prompt = self.PROMPT_TEMPLATES[CaptionType.MONOLOGUE].format(
+        # 获取人设块并注入到 prompt 前面
+        persona_block = self._get_persona_block()
+        
+        prompt = persona_block + self.PROMPT_TEMPLATES[CaptionType.MONOLOGUE].format(
             mood=mood,
         )
 

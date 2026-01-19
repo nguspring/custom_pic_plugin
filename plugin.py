@@ -23,7 +23,7 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name: str = "custom_pic_plugin"  # type: ignore[assignment]
-    plugin_version: str = "3.5.0-beta.5"
+    plugin_version: str = "3.5.0-beta.6"
     plugin_author: str = "Ptrel，Rabbit，saberlights Kiuon，nguspring"
     enable_plugin: bool = True  # type: ignore[assignment]
     dependencies: List[str] = []  # type: ignore[assignment]
@@ -175,7 +175,7 @@ class CustomPicPlugin(BasePlugin):
             ),
             "config_version": ConfigField(
                 type=str,
-                default="3.5.0-beta.5",
+                default="3.5.0-beta.6",
                 description="插件配置版本号",
                 disabled=True,
                 order=2
@@ -553,6 +553,38 @@ class CustomPicPlugin(BasePlugin):
                 depends_value=True,
                 order=10
             ),
+            "schedule_persona_enabled": ConfigField(
+                type=bool,
+                default=True,
+                description="是否在日程生成时注入人设信息（让日程更符合角色身份和生活习惯）",
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=11
+            ),
+            "schedule_persona_text": ConfigField(
+                type=str,
+                default="是一个大二女大学生",
+                description="日程人设描述，用于让LLM生成符合角色身份的日程。例如：是一个大学生/上班族/自由职业者",
+                input_type="textarea",
+                rows=2,
+                placeholder="是一个大二女大学生，在市区租房住",
+                hint="描述角色的身份背景，影响日程中的活动场景",
+                depends_on="auto_selfie.schedule_persona_enabled",
+                depends_value=True,
+                order=12
+            ),
+            "schedule_lifestyle": ConfigField(
+                type=str,
+                default="作息规律，喜欢宅家但偶尔也会出门",
+                description="生活习惯描述，控制日程的活动风格。例如：早睡早起/夜猫子、宅家/经常外出",
+                input_type="textarea",
+                rows=2,
+                placeholder="作息规律，喜欢宅家追剧，偶尔和朋友出去逛街",
+                hint="描述角色的生活习惯，让日程更符合人设",
+                depends_on="auto_selfie.schedule_persona_enabled",
+                depends_value=True,
+                order=13
+            ),
             
             # ==================== 5. 间隔补充发送 ====================
             "enable_interval_supplement": ConfigField(
@@ -657,6 +689,40 @@ class CustomPicPlugin(BasePlugin):
                 depends_on="auto_selfie.enable_narrative",
                 depends_value=True,
                 order=21
+            ),
+            
+            # ==================== 8. 配文人设注入 ====================
+            "caption_persona_enabled": ConfigField(
+                type=bool,
+                default=True,
+                description="是否在配文生成时注入人设信息（让配文更符合角色设定）",
+                depends_on="auto_selfie.enable_narrative",
+                depends_value=True,
+                order=22
+            ),
+            "caption_persona_text": ConfigField(
+                type=str,
+                default="是一个喜欢分享日常的女生",
+                description="配文人设描述，LLM会以此人设生成配文。例如：是一个大二女大学生，有点小傲娇但其实很热心",
+                input_type="textarea",
+                rows=3,
+                placeholder="是一个大二女大学生，喜欢分享日常，有点小傲娇但其实很热心",
+                hint="描述角色的身份、性格特点，让配文更符合人设",
+                depends_on="auto_selfie.caption_persona_enabled",
+                depends_value=True,
+                order=23
+            ),
+            "caption_reply_style": ConfigField(
+                type=str,
+                default="语气自然，符合年轻人社交风格",
+                description="配文表达风格，控制LLM生成的语言风格。例如：俏皮可爱，偶尔吐槽，用语轻松",
+                input_type="textarea",
+                rows=2,
+                placeholder="俏皮可爱，偶尔吐槽，用语轻松自然",
+                hint="描述说话的语气、习惯，让配文风格更一致",
+                depends_on="auto_selfie.caption_persona_enabled",
+                depends_value=True,
+                order=24
             )
         },
         "prompt_optimizer": {

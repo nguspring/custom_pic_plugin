@@ -101,6 +101,52 @@ class ScheduleGenerator:
         self.plugin = plugin_instance
         logger.info("ScheduleGenerator 初始化完成")
 
+    def _get_schedule_persona_block(self) -> str:
+        """获取日程人设配置并构建人设提示块
+        
+        根据用户配置的人设描述和生活习惯，构建注入到日程生成 prompt 中的人设块。
+        
+        Returns:
+            构建好的人设提示块字符串，如果未启用则返回空字符串
+        """
+        # 检查是否启用日程人设注入
+        persona_enabled = self.plugin.get_config("auto_selfie.schedule_persona_enabled", True)
+        
+        if not persona_enabled:
+            logger.debug("日程人设注入未启用")
+            return ""
+        
+        # 获取人设配置
+        persona_text = self.plugin.get_config(
+            "auto_selfie.schedule_persona_text",
+            "是一个大二女大学生"
+        )
+        lifestyle = self.plugin.get_config(
+            "auto_selfie.schedule_lifestyle",
+            "作息规律，喜欢宅家但偶尔也会出门"
+        )
+        
+        # 如果两个配置都为空，返回空字符串
+        if not persona_text and not lifestyle:
+            logger.debug("日程人设和生活习惯配置均为空，跳过注入")
+            return ""
+        
+        # 构建人设块
+        persona_block_parts = []
+        
+        if persona_text:
+            persona_block_parts.append(f"她{persona_text}")
+        
+        if lifestyle:
+            persona_block_parts.append(f"生活习惯：{lifestyle}")
+        
+        persona_block = "。".join(persona_block_parts)
+        
+        logger.info(f"日程人设注入已启用，人设: {persona_block[:50]}...")
+        logger.debug(f"日程人设块内容: {persona_block}")
+        
+        return persona_block
+
     async def generate_daily_schedule(
         self,
         date: str,
@@ -221,6 +267,10 @@ class ScheduleGenerator:
             else "今天是工作日。"
         )
 
+        # 获取人设块
+        persona_block = self._get_schedule_persona_block()
+        
+        # 构建基础 prompt
         prompt = SCHEDULE_GENERATION_PROMPT.format(
             date=date,
             day_of_week=day_of_week,
@@ -228,6 +278,16 @@ class ScheduleGenerator:
             holiday_note=holiday_note,
             schedule_times=", ".join(schedule_times),
         )
+        
+        # 如果有人设，在 prompt 中注入人设信息
+        # 将 "请为一个可爱的女孩" 替换为包含人设的描述
+        if persona_block:
+            persona_insert = f"请为一个可爱的女孩规划今天的以下时间点的活动。{persona_block}。\n\n每个时间点需要包含完整的场景描述"
+            prompt = prompt.replace(
+                "请为一个可爱的女孩规划今天的以下时间点的活动，每个时间点需要包含完整的场景描述",
+                persona_insert
+            )
+            logger.debug(f"日程生成 Prompt 已注入人设信息")
 
         return prompt
 

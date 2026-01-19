@@ -84,6 +84,7 @@ class CustomPicAction(BaseAction):
 4. 技术讨论中提到绘图概念但无生成需求
 5. 用户明确表示不需要图片时
 6. 刚刚成功生成过图片，避免频繁请求
+7. 用户表示搜图、找图等需求，而非生成新图
 """
 
     keyword_case_sensitive = False
