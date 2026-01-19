@@ -1,4 +1,4 @@
-# 🎨 画家麦麦的自拍日常
+# 🎨 画家麦麦的自拍日常 (selfie_painter)
 
 <p align="center">
   <strong>集智能绘画与自拍生成于一体的 MaiBot 插件</strong>
@@ -71,147 +71,6 @@
    - **🎭 风格别名**：支持中文别名，如"卡通"对应"cartoon"
    - **💾 结果缓存**：相同参数自动复用结果，节省资源
 
-## ⏰ 定时自拍功能（v3.5.0 智能日程模式）
-
-**功能描述**：让麦麦像真人一样每天发送自拍，配文自然有连贯感。
-
-**灵感来源**：本功能的灵感来源于 A-Dawn 的 [A_MIND 插件](https://github.com/A-Dawn/A_MIND) 和 XXXxx7258 的 [Mai_Only_You 插件](https://github.com/XXXxx7258/Mai_Only_You)，感谢两位开发者的创意启发。
-
-**v3.5.0 核心特性**：
-- 🌟 **智能日程模式 (Smart Mode)**：通过 LLM 动态生成每日日程，每个时间点包含完整场景描述，实现最自然的"真人感"自拍体验
-- 🎭 **日程自动更新**：每天首次触发时自动生成当天日程，保持新鲜感
-- 🎨 **场景驱动动作**：人物动作由场景决定，不再使用随机的 hand_actions，配文与场景紧密关联
-- 📝 **配文多样化**：支持5种配文类型（叙事式、询问式、分享式、独白式、无配文），智能选择
-- 🚀 **性能优化**：定时自拍采用"生成一次，发送多次"模式，多群发送时只调用一次 API
-
-### 调度模式
-
-#### 智能日程模式 (Smart Mode) - 推荐 ⭐
-
-这是 v3.5.0 的核心功能，通过 LLM 动态生成每日日程，实现最自然的"真人感"自拍体验。
-
-**配置示例：**
-```toml
-[auto_selfie]
-schedule_mode = "smart"
-schedule_times = ["08:00", "12:00", "18:00", "21:00"]
-```
-
-**特点：**
-- 🤖 LLM 根据时间点、天气等动态生成当天日程
-- 🎬 每个时间点包含完整场景描述：地点、姿势、表情、服装、动作
-- 🎭 人物动作由场景决定，不使用随机的 hand_actions
-- 🔄 日程每天自动更新，保持新鲜感
-- 💬 配文与场景紧密关联，更加自然
-
-**工作流程：**
-1. 每天首次触发时，LLM 生成当天完整日程
-2. 到达时间点时，根据日程条目生成图片和配文
-3. 标记已完成的条目，避免重复发送
-
-**使用示例：**
-
-假设配置了 `schedule_times = ["08:00", "12:00", "18:00", "21:00"]`，Smart 模式会在每天首次触发时生成类似这样的日程：
-
-| 时间 | 场景描述 |
-|------|----------|
-| 08:00 | 在卧室刚起床，穿着睡衣，揉着眼睛，阳光透过窗帘洒进来 |
-| 12:00 | 在公司附近的便利店买午餐，穿着职业装，手里拿着便当 |
-| 18:00 | 下班后在商场逛街，试穿新衣服，对着镜子自拍 |
-| 21:00 | 在家里沙发上追剧，穿着居家服，旁边放着零食 |
-
-每个场景会根据角色人设和天气自动调整，第二天会生成全新的日程。
-
----
-
-#### 模式统一说明（v3.5.0）
-
-从 v3.5.0 开始，**所有调度模式统一使用 Smart 模式处理**：
-
-| 原模式 | 处理方式 | 说明 |
-|--------|----------|------|
-| `smart` | ✅ 直接使用 | 推荐的时间点+LLM场景模式 |
-| `times` | ⬆️ 自动升级 | 保留时间点触发，增强场景生成能力 |
-| `hybrid` | ⬆️ 自动升级 | 移除倒计时补充，使用纯时间点+场景触发 |
-| `interval` | ⚠️ 已废弃 | 倒计时触发不符合"真人感"需求，自动转换为smart模式 |
-
-**升级说明**：
-- 如果你之前使用的是 `times` 或 `hybrid` 模式，无需修改配置，系统会自动使用 Smart 模式的增强功能
-- 如果你之前使用的是 `interval` 模式，建议修改配置为 `schedule_mode = "smart"`
-- 所有模式都会使用 LLM 生成场景和配文，获得更自然的"真人感"体验
-
-### 配置项详解
-
-#### 智能日程模式配置 (`[auto_selfie]` 节) - v3.5.0-beta.3
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `schedule_mode` | string | "smart" | 调度模式：`smart`（推荐），其他模式（interval/times/hybrid）会自动升级为smart |
-| `schedule_generator_model` | string | "" | 日程生成使用的LLM模型ID，留空则使用MaiBot的replyer模型 |
-| `schedule_min_entries` | int | 4 | 每天最少生成多少条日程 |
-| `schedule_max_entries` | int | 8 | 每天最多生成多少条日程 |
-| `enable_interval_supplement` | bool | true | 是否启用间隔补充发送（日程时间点之外的随机发送） |
-| `interval_minutes` | int | 120 | 间隔补充的最小间隔时间（分钟），仅在日程时间点附近(±30分钟)之外生效 |
-| `interval_probability` | float | 0.3 | 间隔补充的触发概率（0.0-1.0），每次达到间隔时间时有此概率实际触发 |
-
-#### 日常叙事线配置 (`[auto_selfie]` 节)：
-- `enable_narrative`: 是否启用叙事系统（默认true）
-- `narrative_script`: 剧本选择（auto/default/weekend）
-- `narrative_context_length`: 上下文记忆条数
-
-#### 配文类型配置：
-- `caption_types`: 启用的配文类型列表
-- `caption_weights`: 配文类型权重
-- `caption_model_id`: 配文生成使用的LLM模型
-
-#### 基础配置项 (`[auto_selfie]` 节)：
-- `enabled`: 总开关，默认为 false（需手动开启）
-- `schedule_mode`: 调度模式。`interval`=倒计时模式，`times`=指定时间点模式，`hybrid`=混合模式（推荐）
-- `schedule_times`: 指定时间点列表，仅在 `times` 和 `hybrid` 模式生效。如 `["08:00", "12:00", "20:00"]`
-- `interval_minutes`: 自拍间隔时间（分钟），默认 60 分钟（仅 `interval` 和 `hybrid` 模式生效）
-- `interval_probability`: hybrid模式下interval触发的概率，默认0.3
-- `selfie_style`: 自拍风格，支持 `standard`（标准）和 `mirror`（对镜）
-- `use_replyer_for_ask`: 是否使用麦麦的回复模型生成自然的询问语（推荐开启）
-- `sleep_mode_enabled`: 是否开启睡眠模式（默认 true）
-- `sleep_start_time`: 睡眠开始时间（如 "23:00"）
-- `sleep_end_time`: 睡眠结束时间（如 "07:00"）
-- `list_mode`: 名单模式。`whitelist`=白名单（仅允许列表），`blacklist`=黑名单（排除列表）
-- `chat_id_list`: 聊天ID列表。**注意**：在 `config.toml` 文件中直接修改时，ID需要加双引号（如 `"qq:123456:group"`）；通过 WebUI 修改时无需手动加引号，WebUI 会自动处理格式
-
-**自拍场景配置** (`[selfie]` 节)：
-- `scene_standard`: 标准自拍（前置摄像头）的场景描述
-- `scene_mirror`: 对镜自拍的场景描述
-- `prompt_prefix`: 自拍专用前缀（如发色、瞳色等外貌特征）
-- `negative_prompt_standard`: 标准自拍负面词（禁止手机出现）
-- `negative_prompt_mirror`: 对镜自拍负面词（允许手机出现）
-
-**注意**：麦麦只会在"活跃"的聊天流中发送自拍。
-
-### 新增文件说明（v3.5.0）
-
-Smart 模式引入了以下新的核心模块：
-
-| 文件 | 说明 |
-|------|------|
-| [`core/schedule_models.py`](core/schedule_models.py) | 日程数据模型（DailySchedule, ScheduleEntry） |
-| [`core/schedule_generator.py`](core/schedule_generator.py) | LLM 日程生成器，负责生成每日日程 |
-| [`core/scene_action_generator.py`](core/scene_action_generator.py) | 场景动作生成器，根据场景生成人物动作 |
-
-这些模块与现有的 [`core/narrative_manager.py`](core/narrative_manager.py)、[`core/caption_generator.py`](core/caption_generator.py) 协同工作，实现完整的智能日程生成流程。
-
-## 🔍 智能参考搜索（v3.4.0 新增）
-
-**功能描述**：当用户让麦麦画一个绘图模型不认识的角色（如"画一个博丽灵梦"）时，如果开启了此功能，插件会自动：
-1. 使用内置的 Bing 搜索引擎搜索该角色的图片
-2. 使用视觉模型（如 GPT-4o）分析图片特征（发色、瞳色、服饰等）
-3. 将提取的特征自动合并到提示词中，尽量还原角色
-
-**配置项** (`[search_reference]` 节)：
-- `enabled`: 是否开启，默认为 false
-- `vision_api_key`: 视觉模型的 API Key（必需）
-- `vision_base_url`: 视觉模型的 API 地址
-- `vision_model`: 视觉模型名称
-
 ## 🚀 快速开始
 
 ### 1. 安装插件
@@ -271,7 +130,6 @@ Smart 模式引入了以下新的核心模块：
    - `/dr auto_selfie list` - 查看列表详情
 
 ### 进阶配置
-- **多时间点自拍**：在 `[auto_selfie]` 中设置 `schedule_mode="times"` 和 `schedule_times=["08:00", "20:00"]`，即可让 Bot 在每天固定时间发送自拍。
 - **自定义场景**：在 `[selfie]` 节中修改 `scene_standard` 和 `scene_mirror`，为你的 Bot 打造独一无二的自拍背景（如"在森林里"、"在咖啡厅"）。
 - **双自拍模式**：在 `[selfie]` 节中可分别配置 `negative_prompt_standard`（标准自拍负面词）和 `negative_prompt_mirror`（对镜自拍负面词），避免标准自拍出现手机。
 - **自动撤回**：在 `[models.xxx]` 中设置 `auto_recall_delay`（秒），可实现图片发送后自动撤回（阅后即焚）。
@@ -281,6 +139,124 @@ Smart 模式引入了以下新的核心模块：
 - 需 Python 3.12+
 - 依赖 MaiBot 插件系统（0.8.0 新插件系统，测试兼容 0.10.0 - 0.10.2）
 - 火山方舟 api 需要通过 pip install 'volcengine-python-sdk[ark]' 安装方舟SDK
+
+## ⏰ 定时自拍功能（v3.5.0 智能日程模式）
+
+**功能描述**：让麦麦像真人一样每天发送自拍，配文自然有连贯感。
+
+**灵感来源**：本功能的灵感来源于 A-Dawn 的 [A_MIND 插件](https://github.com/A-Dawn/A_MIND) 和 XXXxx7258 的 [Mai_Only_You 插件](https://github.com/XXXxx7258/Mai_Only_You)，感谢两位开发者的创意启发。
+
+**v3.5.0 核心特性**：
+- 🌟 **智能日程模式 (Smart Mode)**：通过 LLM 动态生成每日日程，每个时间点包含完整场景描述，实现最自然的"真人感"自拍体验
+- 🎭 **日程自动更新**：每天首次触发时自动生成当天日程，保持新鲜感
+- 🎨 **场景驱动动作**：人物动作由场景决定，不再使用随机的 hand_actions，配文与场景紧密关联
+- 📝 **配文多样化**：支持5种配文类型（叙事式、询问式、分享式、独白式、无配文），智能选择
+- 🚀 **性能优化**：定时自拍采用"生成一次，发送多次"模式，多群发送时只调用一次 API
+
+### 调度模式
+
+#### 智能日程模式 (Smart Mode) - 推荐 ⭐
+
+这是 v3.5.0 的核心功能，通过 LLM 动态生成每日日程，实现最自然的"真人感"自拍体验。
+
+**配置示例：**
+```toml
+[auto_selfie]
+schedule_times = ["08:00", "12:00", "18:00", "21:00"]
+```
+
+**特点：**
+- 🤖 LLM 根据时间点、天气等动态生成当天日程
+- 🎬 每个时间点包含完整场景描述：地点、姿势、表情、服装、动作
+- 🎭 人物动作由场景决定，不使用随机的 hand_actions
+- 🔄 日程每天自动更新，保持新鲜感
+- 💬 配文与场景紧密关联，更加自然
+
+**工作流程：**
+1. 每天首次触发时，LLM 生成当天完整日程
+2. 到达时间点时，根据日程条目生成图片和配文
+3. 标记已完成的条目，避免重复发送
+
+**使用示例：**
+
+假设配置了 `schedule_times = ["08:00", "12:00", "18:00", "21:00"]`，Smart 模式会在每天首次触发时生成类似这样的日程：
+
+| 时间 | 场景描述 |
+|------|----------|
+| 08:00 | 在卧室刚起床，穿着睡衣，揉着眼睛，阳光透过窗帘洒进来 |
+| 12:00 | 在公司附近的便利店买午餐，穿着职业装，手里拿着便当 |
+| 18:00 | 下班后在商场逛街，试穿新衣服，对着镜子自拍 |
+| 21:00 | 在家里沙发上追剧，穿着居家服，旁边放着零食 |
+
+每个场景会根据角色人设和天气自动调整，第二天会生成全新的日程。
+
+---
+
+### 配置项详解
+
+#### 智能日程模式配置 (`[auto_selfie]` 节) - v3.5.0-beta.3
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `schedule_generator_model` | string | "" | 日程生成使用的LLM模型ID，留空则使用MaiBot的replyer模型 |
+| `schedule_min_entries` | int | 4 | 每天最少生成多少条日程 |
+| `schedule_max_entries` | int | 8 | 每天最多生成多少条日程 |
+| `enable_interval_supplement` | bool | true | 是否启用间隔补充发送（日程时间点之外的随机发送） |
+| `interval_minutes` | int | 120 | 间隔补充的最小间隔时间（分钟），仅在日程时间点附近(±30分钟)之外生效 |
+| `interval_probability` | float | 0.3 | 间隔补充的触发概率（0.0-1.0），每次达到间隔时间时有此概率实际触发 |
+
+#### 日常叙事线配置 (`[auto_selfie]` 节)：
+- `enable_narrative`: 是否启用叙事系统（默认true）
+
+#### 配文类型配置：
+- `caption_types`: 启用的配文类型列表
+- `caption_weights`: 配文类型权重
+- `caption_model_id`: 配文生成使用的LLM模型
+
+#### 基础配置项 (`[auto_selfie]` 节)：
+- `enabled`: 总开关，默认为 false（需手动开启）
+- `schedule_times`: 指定时间点列表，LLM 会自动生成对应场景。如 `["08:00", "12:00", "20:00"]`
+- `selfie_style`: 自拍风格，支持 `standard`（标准）和 `mirror`（对镜）
+- `use_replyer_for_ask`: 是否使用麦麦的回复模型生成自然的询问语（推荐开启）
+- `sleep_mode_enabled`: 是否开启睡眠模式（默认 true）
+- `sleep_start_time`: 睡眠开始时间（如 "23:00"）
+- `sleep_end_time`: 睡眠结束时间（如 "07:00"）
+- `list_mode`: 名单模式。`whitelist`=白名单（仅允许列表），`blacklist`=黑名单（排除列表）
+- `chat_id_list`: 聊天ID列表。**注意**：在 `config.toml` 文件中直接修改时，ID需要加双引号（如 `"qq:123456:group"`）；通过 WebUI 修改时无需手动加引号，WebUI 会自动处理格式
+
+**自拍场景配置** (`[selfie]` 节)：
+- `scene_standard`: 标准自拍（前置摄像头）的场景描述
+- `scene_mirror`: 对镜自拍的场景描述
+- `prompt_prefix`: 自拍专用前缀（如发色、瞳色等外貌特征）
+- `negative_prompt_standard`: 标准自拍负面词（禁止手机出现）
+- `negative_prompt_mirror`: 对镜自拍负面词（允许手机出现）
+
+**注意**：麦麦只会在"活跃"的聊天流中发送自拍。
+
+### 新增文件说明（v3.5.0）
+
+Smart 模式引入了以下新的核心模块：
+
+| 文件 | 说明 |
+|------|------|
+| [`core/schedule_models.py`](core/schedule_models.py) | 日程数据模型（DailySchedule, ScheduleEntry） |
+| [`core/schedule_generator.py`](core/schedule_generator.py) | LLM 日程生成器，负责生成每日日程 |
+| [`core/scene_action_generator.py`](core/scene_action_generator.py) | 场景动作生成器，根据场景生成人物动作 |
+
+这些模块与现有的 [`core/narrative_manager.py`](core/narrative_manager.py)、[`core/caption_generator.py`](core/caption_generator.py) 协同工作，实现完整的智能日程生成流程。
+
+## 🔍 智能参考搜索（v3.4.0 新增）
+
+**功能描述**：当用户让麦麦画一个绘图模型不认识的角色（如"画一个博丽灵梦"）时，如果开启了此功能，插件会自动：
+1. 使用内置的 Bing 搜索引擎搜索该角色的图片
+2. 使用视觉模型（如 GPT-4o）分析图片特征（发色、瞳色、服饰等）
+3. 将提取的特征自动合并到提示词中，尽量还原角色
+
+**配置项** (`[search_reference]` 节)：
+- `enabled`: 是否开启，默认为 false
+- `vision_api_key`: 视觉模型的 API Key（必需）
+- `vision_base_url`: 视觉模型的 API 地址
+- `vision_model`: 视觉模型名称
 
 ## 常见问题
 
@@ -338,7 +314,7 @@ Smart 模式引入了以下新的核心模块：
 
 ## 未来计划（大饼）
 
-考虑兼容 ComfyUI 实现自定义生图。继续对定时自拍功能进行升级，增加更多样化的自拍风格、智能场景选择和更自然的互动模式。
+原版插件兼容 ComfyUI 后会同步更新。继续对定时自拍功能进行升级，增加更多样化的自拍风格、智能场景选择和更自然的互动模式。
 
 **我的期望**：希望通过统一 TTS 语音合成插件、修改版 custom_pic_plugin 插件、A_MIND 插件、Mai_Only_You 插件这四个插件，塑造出一个真实的麦麦来陪伴用户。让麦麦不仅能用声音与用户交流，还能主动分享自己的生活照片，拥有自己的记忆和情感，成为一个真正有温度的数字伙伴。
 
