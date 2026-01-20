@@ -1869,14 +1869,43 @@ Now generate for current time ({time_str}):"""
                 schedule_entry=current_entry,
             )
         elif is_interval_trigger:
-            # 间隔补充模式：使用 LLM 生成场景
+            # 间隔补充模式：优先尝试读取当前时间对应的日程条目
             logger.info(f"{self.log_prefix} [Smart-Interval] 使用间隔补充模式生成内容")
-            scene_description = await self._generate_llm_scene()
-            image_base64, caption, prompt_used = await self._generate_selfie_content_once(
-                representative_stream=representative_stream,
-                description=scene_description,
-                use_narrative_caption=True,
-            )
+            
+            # 【修复】重新查询当前时间对应的日程条目（不检查 is_completed 状态）
+            interval_schedule = await self._ensure_daily_schedule()
+            interval_entry: Optional[ScheduleEntry] = None
+            
+            if interval_schedule:
+                # 查找当前时间落在哪个日程条目的时间范围内
+                for entry in interval_schedule.entries:
+                    if entry.is_time_in_range(current_time_obj):
+                        interval_entry = entry
+                        logger.info(
+                            f"{self.log_prefix} [Smart-Interval] 找到匹配的日程条目: "
+                            f"{entry.time_point} - {entry.activity_description}"
+                        )
+                        break
+            
+            if interval_entry:
+                # 有匹配的日程条目，使用日程驱动方式（与正常时间点一致）
+                logger.info(
+                    f"{self.log_prefix} [Smart-Interval] 使用日程条目驱动场景: "
+                    f"地点={interval_entry.location}, 服装={interval_entry.outfit}"
+                )
+                image_base64, caption, prompt_used = await self._generate_selfie_content_with_entry(
+                    representative_stream=representative_stream,
+                    schedule_entry=interval_entry,
+                )
+            else:
+                # 没有匹配的日程条目，回退到 LLM 生成场景
+                logger.info(f"{self.log_prefix} [Smart-Interval] 无匹配日程，使用 LLM 生成场景")
+                scene_description = await self._generate_llm_scene()
+                image_base64, caption, prompt_used = await self._generate_selfie_content_once(
+                    representative_stream=representative_stream,
+                    description=scene_description,
+                    use_narrative_caption=True,
+                )
         else:
             # 回退模式：使用回退方式生成（无日程条目）
             logger.info(f"{self.log_prefix} [Smart] 使用回退模式生成内容")

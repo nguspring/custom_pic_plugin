@@ -224,6 +224,51 @@ class ScheduleEntry:
         prompt_parts = [p for p in prompt_parts if p and p.strip()]
         return ", ".join(prompt_parts)
 
+    def is_time_in_range(self, current_time: datetime) -> bool:
+        """
+        检查指定时间是否在本条目的时间范围内
+
+        Args:
+            current_time: 要检查的时间
+
+        Returns:
+            是否在范围内
+        """
+        current_str = current_time.strftime("%H:%M")
+        return self._is_time_in_range_static(
+            current_str, self.time_range_start, self.time_range_end
+        )
+
+    @staticmethod
+    def _is_time_in_range_static(current: str, start: str, end: str) -> bool:
+        """
+        静态方法：检查时间是否在范围内，支持跨午夜
+
+        Args:
+            current: 当前时间 "HH:MM"
+            start: 范围开始 "HH:MM"
+            end: 范围结束 "HH:MM"
+
+        Returns:
+            是否在范围内
+        """
+        def time_to_minutes(time_str: str) -> int:
+            try:
+                parts = time_str.split(":")
+                return int(parts[0]) * 60 + int(parts[1])
+            except (ValueError, IndexError):
+                return 0
+
+        current_mins = time_to_minutes(current)
+        start_mins = time_to_minutes(start)
+        end_mins = time_to_minutes(end)
+
+        if end_mins < start_mins:
+            # 跨午夜
+            return current_mins >= start_mins or current_mins <= end_mins
+        else:
+            return start_mins <= current_mins <= end_mins
+
 
 @dataclass
 class DailySchedule:
