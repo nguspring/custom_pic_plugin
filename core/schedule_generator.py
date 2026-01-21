@@ -12,12 +12,12 @@ from typing import Any, Dict, List, Optional
 
 from src.common.logger import get_logger
 
-from .schedule_models import ActivityType, DailySchedule, ScheduleEntry
+from .schedule_models import ActivityType, DailySchedule, ScheduleEntry, SceneVariation
 
 logger = get_logger("ScheduleGenerator")
 
 
-# Prompt 模板
+# Prompt 模板 v2.0 - 支持场景变体
 SCHEDULE_GENERATION_PROMPT = """今天是{date}，{day_of_week}，天气{weather}。
 {holiday_note}
 
@@ -45,7 +45,19 @@ SCHEDULE_GENERATION_PROMPT = """今天是{date}，{day_of_week}，天气{weather
   "lighting": "光线描述（英文）",
   "weather_context": "天气相关描述（英文）",
   "caption_type": "NARRATIVE/ASK/SHARE/MONOLOGUE",
-  "suggested_caption_theme": "配文主题建议（中文）"
+  "suggested_caption_theme": "配文主题建议（中文）",
+  "scene_variations": [
+    {{
+      "variation_id": "v1",
+      "description": "变体描述（中文，如'喝水休息'）",
+      "pose": "姿势（英文）",
+      "body_action": "身体动作（英文）",
+      "hand_action": "手部动作（英文）",
+      "expression": "表情（英文）",
+      "mood": "情绪",
+      "caption_theme": "配文主题（中文）"
+    }}
+  ]
 }}
 
 ## 活动类型选项
@@ -68,14 +80,41 @@ SCHEDULE_GENERATION_PROMPT = """今天是{date}，{day_of_week}，天气{weather
 - SHARE: 分享式（分享心情）
 - MONOLOGUE: 独白式（自言自语）
 
+## 场景变体说明（重要！）
+每个时间点必须包含 2-3 个场景变体（scene_variations），用于在该时间段内的多次发送。
+变体规则：
+1. 变体保持相同的地点（location）和服装（outfit）
+2. 变体改变姿势、动作、表情，提供不同的"瞬间"
+3. 变体描述符合当前活动的自然行为
+4. 变体之间应有明显区别，避免重复
+
+变体示例（工作时间段）：
+- v1: 认真敲键盘，专注工作
+- v2: 伸懒腰，眼睛有点累
+- v3: 喝水休息，看着屏幕发呆
+
+变体示例（午餐时间段）：
+- v1: 夹菜吃饭，满足的表情
+- v2: 拿手机拍食物
+- v3: 吃完收拾，擦嘴巴
+
 ## 重要规则
-1. 活动安排符合真实生活逻辑
+1. 活动安排符合真实生活逻辑，一天有连续性
 2. 场景描述生动具体，适合生成自拍图片
 3. 表情和情绪要与活动匹配
 4. 时间范围应该合理（通常1-2小时）
 5. 手部动作必须与当前活动场景匹配，不要使用通用手势
 6. 所有英文提示词使用 Stable Diffusion 风格的 tag 格式
-7. 返回有效的JSON数组
+7. 每个条目必须包含 2-3 个不同的场景变体
+8. 返回有效的JSON数组
+
+## 禁止事项（非常重要！）
+这是自拍场景，手机在画面外拍摄，因此：
+1. 【禁止】在 body_action、hand_action 中使用 phone、smartphone、device、mobile 等词汇
+2. 【禁止】描述"刷手机"、"看手机"、"拿手机"、"玩手机"等动作
+3. 【禁止】使用 scrolling phone、holding phone、using phone 等表达
+4. 【替代方案】如果想表达放松/发呆状态，使用：zoning out、staring blankly、daydreaming、resting eyes 等
+5. 【替代方案】如果想表达休息状态，使用：stretching、yawning、resting head on hand、playing with hair 等
 
 请返回完整的日程JSON数组（只返回JSON，不要包含其他文字）：
 """
@@ -632,7 +671,7 @@ class ScheduleGenerator:
         """
         生成回退日程（当 LLM 调用失败时使用）
 
-        使用预定义的模板生成基础日程。
+        使用预定义的模板生成基础日程，包含场景变体。
 
         Args:
             date: 日期
@@ -656,13 +695,29 @@ class ScheduleGenerator:
             model_used="fallback",
         )
 
-        # 预定义的场景模板
+        # 预定义的场景模板（带变体）
         fallback_scenes = self._get_fallback_scenes(is_holiday)
 
         # 为每个时间点分配场景
         for i, time_point in enumerate(schedule_times):
             scene_index = i % len(fallback_scenes)
             scene = fallback_scenes[scene_index]
+
+            # 解析场景变体
+            scene_variations = []
+            if "scene_variations" in scene:
+                for var_data in scene["scene_variations"]:
+                    variation = SceneVariation(
+                        variation_id=var_data.get("variation_id", f"v{len(scene_variations)+1}"),
+                        description=var_data.get("description", ""),
+                        pose=var_data.get("pose", ""),
+                        body_action=var_data.get("body_action", ""),
+                        hand_action=var_data.get("hand_action", ""),
+                        expression=var_data.get("expression", ""),
+                        mood=var_data.get("mood", ""),
+                        caption_theme=var_data.get("caption_theme", ""),
+                    )
+                    scene_variations.append(variation)
 
             entry = ScheduleEntry(
                 time_point=time_point,
@@ -685,21 +740,22 @@ class ScheduleGenerator:
                 weather_context=scene.get("weather_context", ""),
                 caption_type=scene["caption_type"],
                 suggested_caption_theme=scene["suggested_caption_theme"],
+                scene_variations=scene_variations,
             )
             schedule.entries.append(entry)
 
-        logger.info(f"回退日程生成完成，共 {len(schedule.entries)} 个条目")
+        logger.info(f"回退日程生成完成，共 {len(schedule.entries)} 个条目（每条目含变体）")
         return schedule
 
     def _get_fallback_scenes(self, is_holiday: bool) -> List[Dict[str, Any]]:
         """
-        获取回退场景模板
+        获取回退场景模板（带场景变体）
 
         Args:
             is_holiday: 是否假期
 
         Returns:
-            场景模板列表
+            场景模板列表，每个场景包含 2-3 个变体
         """
         if is_holiday:
             # 假期/周末场景
@@ -722,6 +778,28 @@ class ScheduleGenerator:
                     "weather_context": "sunny morning",
                     "caption_type": "narrative",
                     "suggested_caption_theme": "分享周末懒觉的惬意",
+                    "scene_variations": [
+                        {
+                            "variation_id": "v1",
+                            "description": "伸懒腰打哈欠",
+                            "pose": "arms stretched up, yawning",
+                            "body_action": "stretching whole body",
+                            "hand_action": "arms raised above head",
+                            "expression": "yawning, eyes half closed",
+                            "mood": "sleepy",
+                            "caption_theme": "刚醒来的困意",
+                        },
+                        {
+                            "variation_id": "v2",
+                            "description": "看窗外阳光",
+                            "pose": "sitting on bed, looking at window",
+                            "body_action": "leaning against pillow",
+                            "hand_action": "hands resting on lap",
+                            "expression": "surprised, wide eyes",
+                            "mood": "surprised",
+                            "caption_theme": "发现已经睡到中午了",
+                        },
+                    ],
                 },
                 {
                     "activity_type": ActivityType.EATING,
@@ -741,6 +819,38 @@ class ScheduleGenerator:
                     "weather_context": "",
                     "caption_type": "share",
                     "suggested_caption_theme": "分享美味的早午餐",
+                    "scene_variations": [
+                        {
+                            "variation_id": "v1",
+                            "description": "吃得很满足",
+                            "pose": "sitting at table, leaning back",
+                            "body_action": "chewing food",
+                            "hand_action": "holding fork with food",
+                            "expression": "happy eating face, cheeks puffed",
+                            "mood": "happy",
+                            "caption_theme": "好吃！",
+                        },
+                        {
+                            "variation_id": "v2",
+                            "description": "欣赏食物",
+                            "pose": "leaning forward, admiring food",
+                            "body_action": "looking at the delicious meal",
+                            "hand_action": "hands clasped under chin",
+                            "expression": "focused, slight smile",
+                            "mood": "excited",
+                            "caption_theme": "看起来好好吃",
+                        },
+                        {
+                            "variation_id": "v3",
+                            "description": "喝饮料休息",
+                            "pose": "sitting back, relaxed",
+                            "body_action": "taking a break from eating",
+                            "hand_action": "holding cup with both hands",
+                            "expression": "content, peaceful",
+                            "mood": "peaceful",
+                            "caption_theme": "吃饱喝足真幸福",
+                        },
+                    ],
                 },
                 {
                     "activity_type": ActivityType.RELAXING,
@@ -749,8 +859,8 @@ class ScheduleGenerator:
                     "location": "客厅",
                     "location_prompt": "living room, couch, cozy",
                     "pose": "lounging on sofa",
-                    "body_action": "relaxing, watching",
-                    "hand_action": "holding phone, scrolling",
+                    "body_action": "relaxing, watching TV",
+                    "hand_action": "holding remote control",
                     "expression": "relaxed, content",
                     "mood": "peaceful",
                     "outfit": "comfortable clothes",
@@ -760,6 +870,38 @@ class ScheduleGenerator:
                     "weather_context": "",
                     "caption_type": "monologue",
                     "suggested_caption_theme": "周末放松时刻",
+                    "scene_variations": [
+                        {
+                            "variation_id": "v1",
+                            "description": "认真看剧",
+                            "pose": "curled up on sofa",
+                            "body_action": "focused on screen",
+                            "hand_action": "holding remote, pressing",
+                            "expression": "concentrated, slight frown",
+                            "mood": "focused",
+                            "caption_theme": "追剧中勿扰",
+                        },
+                        {
+                            "variation_id": "v2",
+                            "description": "躺着发呆",
+                            "pose": "lying sideways on sofa",
+                            "body_action": "staring blankly, daydreaming",
+                            "hand_action": "hand resting under cheek",
+                            "expression": "blank stare, relaxed",
+                            "mood": "lazy",
+                            "caption_theme": "无聊中...",
+                        },
+                        {
+                            "variation_id": "v3",
+                            "description": "吃零食",
+                            "pose": "sitting cross-legged on sofa",
+                            "body_action": "snacking while watching",
+                            "hand_action": "reaching into snack bag",
+                            "expression": "happy munching",
+                            "mood": "happy",
+                            "caption_theme": "看剧必须配零食",
+                        },
+                    ],
                 },
                 {
                     "activity_type": ActivityType.SELF_CARE,
@@ -779,6 +921,28 @@ class ScheduleGenerator:
                     "weather_context": "",
                     "caption_type": "share",
                     "suggested_caption_theme": "护肤日常",
+                    "scene_variations": [
+                        {
+                            "variation_id": "v1",
+                            "description": "涂面膜",
+                            "pose": "leaning close to mirror",
+                            "body_action": "applying face mask",
+                            "hand_action": "spreading mask on face",
+                            "expression": "concentrated, lips pursed",
+                            "mood": "focused",
+                            "caption_theme": "面膜时间",
+                        },
+                        {
+                            "variation_id": "v2",
+                            "description": "拍打精华",
+                            "pose": "standing, head tilted",
+                            "body_action": "patting face gently",
+                            "hand_action": "both hands patting cheeks",
+                            "expression": "eyes closed, relaxed",
+                            "mood": "peaceful",
+                            "caption_theme": "让精华好好吸收",
+                        },
+                    ],
                 },
             ]
         else:
@@ -802,6 +966,28 @@ class ScheduleGenerator:
                     "weather_context": "morning",
                     "caption_type": "narrative",
                     "suggested_caption_theme": "早安问候",
+                    "scene_variations": [
+                        {
+                            "variation_id": "v1",
+                            "description": "关闹钟",
+                            "pose": "reaching for phone on nightstand",
+                            "body_action": "still lying in bed",
+                            "hand_action": "tapping phone to turn off alarm",
+                            "expression": "annoyed, sleepy",
+                            "mood": "grumpy",
+                            "caption_theme": "又是被闹钟叫醒的一天",
+                        },
+                        {
+                            "variation_id": "v2",
+                            "description": "坐起来发呆",
+                            "pose": "sitting on bed, hunched",
+                            "body_action": "trying to wake up",
+                            "hand_action": "hands on knees",
+                            "expression": "blank stare, half asleep",
+                            "mood": "groggy",
+                            "caption_theme": "需要咖啡...",
+                        },
+                    ],
                 },
                 {
                     "activity_type": ActivityType.EATING,
@@ -821,6 +1007,38 @@ class ScheduleGenerator:
                     "weather_context": "",
                     "caption_type": "share",
                     "suggested_caption_theme": "午餐分享",
+                    "scene_variations": [
+                        {
+                            "variation_id": "v1",
+                            "description": "认真吃饭",
+                            "pose": "sitting, focused on food",
+                            "body_action": "eating steadily",
+                            "hand_action": "chopsticks picking up food",
+                            "expression": "enjoying, mouth slightly open",
+                            "mood": "satisfied",
+                            "caption_theme": "今天的午餐不错",
+                        },
+                        {
+                            "variation_id": "v2",
+                            "description": "和同事聊天",
+                            "pose": "sitting, turned slightly",
+                            "body_action": "talking while eating",
+                            "hand_action": "chopsticks held, gesturing",
+                            "expression": "laughing, animated",
+                            "mood": "cheerful",
+                            "caption_theme": "午餐摸鱼时间",
+                        },
+                        {
+                            "variation_id": "v3",
+                            "description": "喝汤休息",
+                            "pose": "sitting, holding bowl",
+                            "body_action": "taking a break from eating",
+                            "hand_action": "both hands holding soup bowl",
+                            "expression": "content, eyes closed, savoring",
+                            "mood": "peaceful",
+                            "caption_theme": "喝口汤暖暖的",
+                        },
+                    ],
                 },
                 {
                     "activity_type": ActivityType.WORKING,
@@ -840,6 +1058,38 @@ class ScheduleGenerator:
                     "weather_context": "",
                     "caption_type": "ask",
                     "suggested_caption_theme": "工作日常",
+                    "scene_variations": [
+                        {
+                            "variation_id": "v1",
+                            "description": "敲键盘工作",
+                            "pose": "leaning forward, focused",
+                            "body_action": "typing intensely",
+                            "hand_action": "fingers on keyboard, typing fast",
+                            "expression": "concentrated, slight frown",
+                            "mood": "focused",
+                            "caption_theme": "认真工作中",
+                        },
+                        {
+                            "variation_id": "v2",
+                            "description": "伸懒腰休息",
+                            "pose": "leaning back in chair, stretching",
+                            "body_action": "taking a break",
+                            "hand_action": "arms stretched overhead",
+                            "expression": "tired, eyes closed",
+                            "mood": "tired",
+                            "caption_theme": "工作累了休息一下",
+                        },
+                        {
+                            "variation_id": "v3",
+                            "description": "喝咖啡提神",
+                            "pose": "sitting back, relaxed",
+                            "body_action": "taking a coffee break",
+                            "hand_action": "holding coffee cup",
+                            "expression": "contemplative, looking at screen",
+                            "mood": "thoughtful",
+                            "caption_theme": "咖啡续命",
+                        },
+                    ],
                 },
                 {
                     "activity_type": ActivityType.RELAXING,
@@ -849,7 +1099,7 @@ class ScheduleGenerator:
                     "location_prompt": "home, evening, relaxing",
                     "pose": "relaxed pose",
                     "body_action": "resting, relaxing",
-                    "hand_action": "holding phone",
+                    "hand_action": "hands resting on lap",
                     "expression": "tired but happy",
                     "mood": "relaxed",
                     "outfit": "casual clothes",
@@ -859,6 +1109,38 @@ class ScheduleGenerator:
                     "weather_context": "evening",
                     "caption_type": "monologue",
                     "suggested_caption_theme": "下班后的放松",
+                    "scene_variations": [
+                        {
+                            "variation_id": "v1",
+                            "description": "瘫在沙发上",
+                            "pose": "sprawled on sofa",
+                            "body_action": "completely relaxed",
+                            "hand_action": "arms spread out",
+                            "expression": "exhausted but relieved",
+                            "mood": "exhausted",
+                            "caption_theme": "终于到家了",
+                        },
+                        {
+                            "variation_id": "v2",
+                            "description": "换家居服",
+                            "pose": "standing, changing clothes",
+                            "body_action": "putting on comfortable clothes",
+                            "hand_action": "pulling on hoodie",
+                            "expression": "relieved, comfortable",
+                            "mood": "comfortable",
+                            "caption_theme": "换上舒服的衣服",
+                        },
+                        {
+                            "variation_id": "v3",
+                            "description": "躺着放空发呆",
+                            "pose": "lying on sofa, legs up",
+                            "body_action": "zoning out, staring at ceiling",
+                            "hand_action": "hands resting on stomach",
+                            "expression": "blank, zoned out",
+                            "mood": "lazy",
+                            "caption_theme": "下班后的摸鱼时间",
+                        },
+                    ],
                 },
             ]
 
@@ -879,6 +1161,47 @@ class ScheduleGenerator:
         plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         return os.path.join(plugin_dir, f"daily_schedule_{date}.json")
 
+    def _cleanup_old_schedule_files(self, current_date: str) -> None:
+        """
+        清理旧的日程文件
+        
+        删除非当天的日程文件，避免文件越堆越多。
+        
+        Args:
+            current_date: 当前日期 YYYY-MM-DD
+        """
+        try:
+            # 获取插件目录
+            plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            
+            # 查找所有日程文件
+            import glob
+            pattern = os.path.join(plugin_dir, "daily_schedule_*.json")
+            schedule_files = glob.glob(pattern)
+            
+            deleted_count = 0
+            for file_path in schedule_files:
+                # 提取文件中的日期
+                filename = os.path.basename(file_path)
+                # daily_schedule_YYYY-MM-DD.json
+                if filename.startswith("daily_schedule_") and filename.endswith(".json"):
+                    file_date = filename[15:-5]  # 提取日期部分
+                    
+                    # 如果不是当天的文件，删除它
+                    if file_date != current_date:
+                        try:
+                            os.remove(file_path)
+                            deleted_count += 1
+                            logger.debug(f"已删除旧日程文件: {filename}")
+                        except OSError as e:
+                            logger.warning(f"删除旧日程文件失败 {filename}: {e}")
+            
+            if deleted_count > 0:
+                logger.info(f"已清理 {deleted_count} 个旧日程文件")
+                
+        except Exception as e:
+            logger.warning(f"清理旧日程文件时出错: {e}")
+
     async def get_or_generate_schedule(
         self,
         date: str,
@@ -891,6 +1214,7 @@ class ScheduleGenerator:
         获取或生成日程
 
         首先尝试从文件加载，如果不存在或需要强制重新生成，则调用 LLM 生成。
+        同时会清理非当天的旧日程文件。
 
         Args:
             date: 日期
@@ -902,6 +1226,9 @@ class ScheduleGenerator:
         Returns:
             DailySchedule 实例
         """
+        # 清理旧的日程文件（非当天的）
+        self._cleanup_old_schedule_files(date)
+        
         file_path = self.get_schedule_file_path(date)
 
         # 如果不是强制重新生成，尝试从文件加载

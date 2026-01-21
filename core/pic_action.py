@@ -691,10 +691,12 @@ class CustomPicAction(BaseAction):
 
         # 原有逻辑（向后兼容）
 
-        # 1. 添加强制主体设置
-        forced_subject = "(1girl:1.4), (solo:1.3)"
+        # 1. 添加强制主体设置（只保留单人约束，不强制性别）
+        # 性别由用户在 selfie.prompt_prefix 中自行配置
+        forced_subject = "(solo:1.3)"
 
         # 2. 从独立的selfie配置中获取Bot的默认形象特征
+        # 用户应在此配置中指定性别，如 "1girl" 或 "1boy"
         bot_appearance = str(self.get_config("selfie.prompt_prefix", "")).strip()
 
         # 3. 定义自拍风格特定的场景设置（通用版：适用于真实风格和二次元风格）
@@ -714,110 +716,8 @@ class CustomPicAction(BaseAction):
             )
             selfie_scene = str(self.get_config("selfie.scene_standard", default_standard))
 
-        # 4. 智能手部动作库（比原版更多的动作！）
-        hand_actions = [
-            # --- 经典单手手势 ---
-            "peace sign, v sign",                     # 剪刀手（自拍最经典）
-            "thumbs up, positive gesture",            # 竖大拇指
-            "thumbs down, negative gesture",          # 倒大拇指
-            "ok sign, hand gesture",                  # OK手势
-            "rock on sign, heavy metal gesture",      # 摇滚手势（金属礼）
-            "shaka sign, hang loose",                 # 悬挂手势（小拇指和大拇指伸出）
-            "call me hand gesture",                   # "打电话"手势（六字手势）
-            "pointing at camera lens, engaging",      # 手指指镜头（互动感强）
-            "fist pump, excited",                     # 单手挥拳（兴奋）
-            "saluting with one hand",                 # 单手敬礼
-            "clenched fist, fighting spirit",         # 握紧拳头（元气）
-            "crossing fingers, wishing luck",          # 单手交叉手指（祈祷好运）
-            "showing palm, stop gesture",             # 手掌摊开（停止/五指张开）
-
-            # --- 面部与头部互动（特写感） ---
-            "touching own cheek gently",              # 轻轻摸自己的脸
-            "leaning chin on hand, cute",             # 托腮（需侧身或对镜）
-            "hand near chin, thinking pose",          # 手靠近下巴（思考）
-            "covering mouth with hand, shy giggle",   # 手遮嘴笑（害羞）
-            "finger on lips, shushing",               # 食指按唇（嘘）
-            "hand covering one eye, peeking",         # 遮住一只眼偷看
-            "playing with hair, messy look",          # 玩弄头发
-            "tucking hair behind ear",                # 把头发别在耳后
-            "fixing fringe, adjusting hair",           # 整理刘海
-            "hand on forehead, dramatic",             # 手扶额头（无奈/戏剧感）
-            "scratching head, confused",              # 挠头（困惑）
-            "pulling collar, flustered",              # 拉衣领（热/慌乱）
-            "touching neck, elegant",                 # 摸脖子（优雅）
-            "supporting jaw with hand",               # 手撑下巴（特写）
-
-            # --- 身体姿态与时尚 ---
-            "hand on hip, confident",                 # 单手叉腰（最显瘦姿势）
-            "hand akimbo, sassy",                     # 叉腰（傲娇）
-            "hand behind head, relaxed cool",          # 手放在脑后（放松/对镜）
-            "hand resting on shoulder",               # 手搭在肩膀上（防御/可爱）
-            "adjusting sleeve, detail",               # 整理袖子
-            "fixing collar, neat",                    # 整理衣领
-            "adjusting earring",                      # 调整耳环
-            "wearing sunglasses on face",             # 戴上墨镜
-            "holding sunglasses, looking down",       # 手拿墨镜
-            "hand touching necklace",                 # 摸项链
-            "hand in pocket, casual",                 # 另一只手插兜（酷）
-            "resting arm on leg",                     # 手臂搭在腿上（坐姿自拍）
-            "hand on wall, leaning pose",             # 手撑墙（对镜/侧身）
-            "hand on table, relaxing",                # 手放在桌上（咖啡店风格）
-
-            # --- 甜美与可爱 ---
-            "finger heart, cute pose",                # 单手指比心（韩系）
-            "blowing kiss, romantic",                 # 飞吻
-            "cat paw gesture, playful",               # 猫爪手势
-            "bunny ears with fingers",                # 手指比兔耳
-            "holding invisible ball",                 # 抱着隐形球
-            "winking with hand near face",            # 手靠近脸部眨眼
-            "pinky promise",                          # 拉钩手势
-            "making a heart shape with one arm",      # 单臂弯曲成心形
-            "claw gesture, cute monster",             # 爪子手势
-            "framing face with hand",                 # 手做框住脸
-
-            # --- 单手持物互动（小物件） ---
-            "holding coffee cup, steam rising",       # 拿着咖啡杯
-            "drinking from a straw",                  # 喝饮料（吸管）
-            "holding a milk tea bubble tea",          # 拿着奶茶
-            "holding a can of soda",                  # 拿着汽水罐
-            "holding a lollipop, colorful",           # 拿着棒棒糖
-            "eating ice cream, happy",                # 吃冰淇淋
-            "holding a flower, smelling it",          # 拿着花闻
-            "holding a bouquet of flowers",            # 抱着一束花
-            "holding a plush toy",                    # 拿着毛绒公仔
-            "holding a cute mascot doll",              # 拿着玩偶
-            "holding a pen, thinking",                # 拿着笔思考
-            "holding a book, reading",                # 拿着书（展示封面）
-            "holding a fashion magazine",             # 拿着时尚杂志
-            "holding a microphone, singing",          # 拿着麦克风
-            "holding a game controller",              # 拿着手柄（需另一只手拿设备自拍）
-            "holding a game console (Switch)",        # 拿着游戏机
-            "holding a musical instrument (ukulele)", # 拿着尤克里里
-            "holding a camera strap",                 # 拿着相机背带
-            "holding a fan",                          # 拿着扇子
-            "wearing a watch on wrist",               # 亮出手表（特写）
-            "wearing a bracelet",                     # 亮出手链
-
-            # --- 指向与引导 ---
-            "pointing at viewer, engaging",           # 指向观众
-            "pointing up, eureka",                    # 指向上方
-            "pointing sideways, look here",           # 指向旁边
-            "beckoning with finger",                  # 勾手指（过来）
-            "thumbs pointing behind",                 # 大拇指指向身后
-            "waving hand, greeting",                  # 挥手打招呼
-
-            # --- 特殊视角与对镜自拍特有 ---
-            "hand reaching out to camera",            # 手伸向镜头（透视感）
-            "hand touching the camera lens",          # 手摸镜头（模糊/接触感）
-            "hand resting on chin, close-up",         # 托腮大特写
-            "hand covering part of face",             # 手遮住部分脸（构图感）
-            "hand forming a frame",                   # 手做取景框
-            "peace sign under chin",                  # 剪刀手在下巴
-            "showing fingernails, manicure",          # 展示指甲（美甲特写）
-            "palm resting on cheek, cute",            # 手掌贴脸
-            "fist under chin",                        # 拳头托下巴
-            "elbow on table, hand supporting head",   # 肘部撑桌手托头
-        ]
+        # 4. 从外部文件加载手部动作库（支持用户自定义）
+        hand_actions = self._load_hand_actions()
 
 
         # 5. 选择手部动作
@@ -894,6 +794,55 @@ class CustomPicAction(BaseAction):
 
         logger.info(f"{self.log_prefix} 自拍模式最终提示词: {final_prompt}") # 现在会显示所有提示词，方便找到问题
         return final_prompt
+
+    def _load_hand_actions(self) -> List[str]:
+        """从外部 JSON 文件加载手部动作库
+        
+        支持用户自定义动作，文件路径: core/hand_actions.json
+        如果文件不存在或加载失败，返回默认动作列表
+        
+        Returns:
+            List[str]: 手部动作描述列表
+        """
+        import json
+        
+        # 默认动作（备用）
+        default_actions = [
+            "peace sign, v sign",
+            "thumbs up, positive gesture",
+            "ok sign, hand gesture",
+            "finger heart, cute pose",
+            "hand on hip, confident",
+            "touching own cheek gently",
+            "waving hand, greeting",
+            "hand near chin, thinking pose"
+        ]
+        
+        try:
+            # 构建配置文件路径
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            json_path = os.path.join(current_dir, "hand_actions.json")
+            
+            if os.path.exists(json_path):
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    actions = data.get("hand_actions", [])
+                    if actions and isinstance(actions, list):
+                        logger.debug(f"{self.log_prefix} 从配置文件加载了 {len(actions)} 个手部动作")
+                        return actions
+                    else:
+                        logger.warning(f"{self.log_prefix} 手部动作配置文件格式无效，使用默认动作")
+                        return default_actions
+            else:
+                logger.info(f"{self.log_prefix} 手部动作配置文件不存在，使用默认动作")
+                return default_actions
+                
+        except json.JSONDecodeError as e:
+            logger.warning(f"{self.log_prefix} 手部动作配置文件 JSON 解析失败: {e}")
+            return default_actions
+        except Exception as e:
+            logger.warning(f"{self.log_prefix} 加载手部动作配置失败: {e}")
+            return default_actions
 
     def _get_selfie_reference_image(self) -> Optional[str]:
         """获取自拍参考图片的base64编码

@@ -3,6 +3,12 @@
 
 包含活动类型枚举、日程条目和每日日程等数据类型，
 用于 LLM 动态生成日程的新架构。
+
+v2.0 更新：
+- 新增 SceneVariation：场景变体，用于同一时间段内的多次发送
+- 新增 DailyNarrativeState：叙事状态追踪，保持一天的连续性
+- ScheduleEntry 支持场景变体列表
+- DailySchedule 集成叙事状态
 """
 
 import json
@@ -10,7 +16,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.common.logger import get_logger
 
@@ -36,6 +42,74 @@ class ActivityType(Enum):
     HOBBY = "hobby"  # 爱好活动
     SELF_CARE = "self_care"  # 自我护理（护肤、化妆等）
     OTHER = "other"  # 其他
+
+
+@dataclass
+class SceneVariation:
+    """
+    场景变体 - 同一时间段内的不同瞬间
+    
+    用于间隔补充触发时提供变化，保持同一时间段内多次发送不重复。
+    场景变体保持相同的地点和服装，但改变姿势、动作、表情等。
+    
+    Attributes:
+        variation_id: 变体唯一标识
+        description: 变体描述（中文，如"喝水休息"）
+        pose: 姿势描述（英文）
+        body_action: 身体动作（英文）
+        hand_action: 手部动作（英文）
+        expression: 表情（英文）
+        mood: 情绪
+        caption_theme: 配文主题（中文）
+        is_used: 是否已使用
+        used_at: 使用时间
+    """
+    variation_id: str
+    description: str
+    pose: str
+    body_action: str
+    hand_action: str
+    expression: str
+    mood: str = "neutral"
+    caption_theme: str = ""
+    is_used: bool = False
+    used_at: Optional[str] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            "variation_id": self.variation_id,
+            "description": self.description,
+            "pose": self.pose,
+            "body_action": self.body_action,
+            "hand_action": self.hand_action,
+            "expression": self.expression,
+            "mood": self.mood,
+            "caption_theme": self.caption_theme,
+            "is_used": self.is_used,
+            "used_at": self.used_at,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SceneVariation":
+        """从字典创建实例"""
+        return cls(
+            variation_id=data.get("variation_id", ""),
+            description=data.get("description", ""),
+            pose=data.get("pose", ""),
+            body_action=data.get("body_action", ""),
+            hand_action=data.get("hand_action", ""),
+            expression=data.get("expression", ""),
+            mood=data.get("mood", "neutral"),
+            caption_theme=data.get("caption_theme", ""),
+            is_used=data.get("is_used", False),
+            used_at=data.get("used_at"),
+        )
+    
+    def mark_used(self) -> None:
+        """标记为已使用"""
+        self.is_used = True
+        self.used_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 @dataclass
@@ -109,6 +183,12 @@ class ScheduleEntry:
     # 状态
     is_completed: bool = False
     completed_at: Optional[str] = None
+    
+    # v2.0 新增：场景变体列表
+    scene_variations: List[SceneVariation] = field(default_factory=list)
+    # 追踪间隔补充使用情况
+    interval_use_count: int = 0  # 间隔补充使用次数
+    last_interval_use_at: Optional[str] = None  # 最后一次间隔补充使用时间
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -142,6 +222,10 @@ class ScheduleEntry:
             "suggested_caption_theme": self.suggested_caption_theme,
             "is_completed": self.is_completed,
             "completed_at": self.completed_at,
+            # v2.0 新增字段
+            "scene_variations": [v.to_dict() for v in self.scene_variations],
+            "interval_use_count": self.interval_use_count,
+            "last_interval_use_at": self.last_interval_use_at,
         }
 
     @classmethod
@@ -168,6 +252,12 @@ class ScheduleEntry:
         else:
             activity_type = activity_type_value
 
+        # 解析场景变体列表
+        variations_data = data.get("scene_variations", [])
+        scene_variations = [
+            SceneVariation.from_dict(v) for v in variations_data
+        ] if variations_data else []
+
         return cls(
             time_point=data.get("time_point", ""),
             time_range_start=data.get("time_range_start", ""),
@@ -191,6 +281,10 @@ class ScheduleEntry:
             suggested_caption_theme=data.get("suggested_caption_theme", ""),
             is_completed=data.get("is_completed", False),
             completed_at=data.get("completed_at"),
+            # v2.0 新增字段
+            scene_variations=scene_variations,
+            interval_use_count=data.get("interval_use_count", 0),
+            last_interval_use_at=data.get("last_interval_use_at"),
         )
 
     def to_image_prompt(self) -> str:
@@ -269,6 +363,249 @@ class ScheduleEntry:
         else:
             return start_mins <= current_mins <= end_mins
 
+    # ================================================================
+    # v2.0 新增：场景变体相关方法
+    # ================================================================
+    
+    def get_unused_variation(self) -> Optional[SceneVariation]:
+        """
+        获取一个未使用的场景变体
+        
+        Returns:
+            未使用的场景变体，如果都已使用则返回 None
+        """
+        for variation in self.scene_variations:
+            if not variation.is_used:
+                return variation
+        return None
+    
+    def get_next_variation(self) -> Optional[SceneVariation]:
+        """
+        获取下一个可用的场景变体（优先返回未使用的，否则重置并返回第一个）
+        
+        Returns:
+            下一个可用的场景变体
+        """
+        # 首先尝试获取未使用的
+        unused = self.get_unused_variation()
+        if unused:
+            return unused
+        
+        # 如果都已使用，重置所有变体并返回第一个
+        if self.scene_variations:
+            self.reset_variations()
+            return self.scene_variations[0]
+        
+        return None
+    
+    def mark_variation_used(self, variation_id: str) -> bool:
+        """
+        标记指定变体为已使用
+        
+        Args:
+            variation_id: 变体ID
+            
+        Returns:
+            是否成功标记
+        """
+        for variation in self.scene_variations:
+            if variation.variation_id == variation_id:
+                variation.mark_used()
+                return True
+        return False
+    
+    def reset_variations(self) -> None:
+        """重置所有变体的使用状态"""
+        for variation in self.scene_variations:
+            variation.is_used = False
+            variation.used_at = None
+    
+    def get_used_variation_count(self) -> int:
+        """获取已使用的变体数量"""
+        return sum(1 for v in self.scene_variations if v.is_used)
+    
+    def has_available_variation(self) -> bool:
+        """检查是否有可用的变体"""
+        return any(not v.is_used for v in self.scene_variations)
+    
+    def record_interval_use(self) -> None:
+        """记录一次间隔补充使用"""
+        self.interval_use_count += 1
+        self.last_interval_use_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    def create_variation_prompt(self, variation: SceneVariation) -> str:
+        """
+        使用变体信息创建图片生成提示词
+        
+        保持原条目的地点、服装、环境等，替换姿势、动作、表情。
+        
+        Args:
+            variation: 场景变体
+            
+        Returns:
+            完整的英文提示词
+        """
+        prompt_parts = [
+            # 强制主体
+            "(1girl:1.4), (solo:1.3)",
+            # 表情（使用变体的表情）
+            f"({variation.expression}:1.2)" if variation.expression else "",
+            # 姿势与动作（使用变体的姿势和动作）
+            variation.pose,
+            variation.body_action,
+            f"({variation.hand_action}:1.3)" if variation.hand_action else "",
+            # 服装（保持原条目的服装）
+            self.outfit,
+            self.accessories,
+            # 环境（保持原条目的环境）
+            self.location_prompt,
+            self.environment,
+            self.lighting,
+            # 自拍视角
+            "front camera view, looking at camera, selfie POV",
+        ]
+
+        # 过滤空值并拼接
+        prompt_parts = [p for p in prompt_parts if p and p.strip()]
+        return ", ".join(prompt_parts)
+
+
+@dataclass
+class DailyNarrativeState:
+    """
+    每日叙事状态 - 追踪一天的连续性
+    
+    用于保持一天内自拍的连续性，记录当前位置、服装、情绪变化等。
+    在间隔补充触发时，根据叙事状态选择合适的场景。
+    
+    Attributes:
+        current_location: 当前位置（最后一次发送时的位置）
+        current_outfit: 当前服装（最后一次发送时的服装）
+        mood_trajectory: 情绪变化轨迹
+        sent_scenes_summary: 已发送场景的摘要列表
+        last_sent_time: 上次发送时间
+        last_sent_entry_time_point: 上次使用的日程条目时间点
+        total_sent_count: 今日总发送次数
+        interval_sent_count: 间隔补充发送次数
+    """
+    current_location: str = ""
+    current_outfit: str = ""
+    mood_trajectory: List[str] = field(default_factory=list)
+    sent_scenes_summary: List[str] = field(default_factory=list)
+    last_sent_time: str = ""
+    last_sent_entry_time_point: str = ""
+    total_sent_count: int = 0
+    interval_sent_count: int = 0
+    
+    def update_after_send(
+        self,
+        entry: "ScheduleEntry",
+        variation: Optional[SceneVariation] = None,
+        is_interval: bool = False,
+    ) -> None:
+        """
+        发送后更新叙事状态
+        
+        Args:
+            entry: 使用的日程条目
+            variation: 使用的场景变体（如果有）
+            is_interval: 是否是间隔补充发送
+        """
+        self.current_location = entry.location
+        self.current_outfit = entry.outfit
+        self.last_sent_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.last_sent_entry_time_point = entry.time_point
+        self.total_sent_count += 1
+        
+        if is_interval:
+            self.interval_sent_count += 1
+        
+        # 记录情绪
+        mood = variation.mood if variation else entry.mood
+        self.mood_trajectory.append(mood)
+        
+        # 记录场景摘要
+        if variation:
+            summary = f"[{entry.time_point}] {variation.description}"
+        else:
+            summary = f"[{entry.time_point}] {entry.activity_description}"
+        self.sent_scenes_summary.append(summary)
+        
+        # 限制摘要数量（保留最近 10 条）
+        if len(self.sent_scenes_summary) > 10:
+            self.sent_scenes_summary = self.sent_scenes_summary[-10:]
+        if len(self.mood_trajectory) > 10:
+            self.mood_trajectory = self.mood_trajectory[-10:]
+    
+    def get_context_for_caption(self) -> str:
+        """
+        获取用于生成配文的上下文
+        
+        Returns:
+            叙事上下文字符串
+        """
+        if not self.sent_scenes_summary:
+            return "今天还没有发过自拍。"
+        
+        context_parts = [f"今天已发送 {self.total_sent_count} 张自拍："]
+        for summary in self.sent_scenes_summary[-3:]:  # 最近 3 条
+            context_parts.append(f"- {summary}")
+        
+        if self.current_location:
+            context_parts.append(f"当前位置：{self.current_location}")
+        
+        return "\n".join(context_parts)
+    
+    def can_transition_to(self, target_entry: "ScheduleEntry") -> Tuple[bool, str]:
+        """
+        检查是否可以自然过渡到目标场景
+        
+        Args:
+            target_entry: 目标日程条目
+            
+        Returns:
+            Tuple[是否可以过渡, 原因说明]
+        """
+        # 如果没有发送过，任何场景都可以
+        if not self.last_sent_entry_time_point:
+            return True, "首次发送"
+        
+        # 如果位置相同，可以过渡
+        if self.current_location == target_entry.location:
+            return True, "位置相同"
+        
+        # 如果位置不同，检查是否是合理的过渡
+        # 例如：办公室 -> 家里 需要有"下班"的过渡
+        # 这里简化处理，允许任何过渡但返回说明
+        return True, f"位置变化：{self.current_location} -> {target_entry.location}"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            "current_location": self.current_location,
+            "current_outfit": self.current_outfit,
+            "mood_trajectory": self.mood_trajectory,
+            "sent_scenes_summary": self.sent_scenes_summary,
+            "last_sent_time": self.last_sent_time,
+            "last_sent_entry_time_point": self.last_sent_entry_time_point,
+            "total_sent_count": self.total_sent_count,
+            "interval_sent_count": self.interval_sent_count,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DailyNarrativeState":
+        """从字典创建实例"""
+        return cls(
+            current_location=data.get("current_location", ""),
+            current_outfit=data.get("current_outfit", ""),
+            mood_trajectory=data.get("mood_trajectory", []),
+            sent_scenes_summary=data.get("sent_scenes_summary", []),
+            last_sent_time=data.get("last_sent_time", ""),
+            last_sent_entry_time_point=data.get("last_sent_entry_time_point", ""),
+            total_sent_count=data.get("total_sent_count", 0),
+            interval_sent_count=data.get("interval_sent_count", 0),
+        )
+
 
 @dataclass
 class DailySchedule:
@@ -296,6 +633,9 @@ class DailySchedule:
     entries: List[ScheduleEntry] = field(default_factory=list)
     generated_at: str = ""  # 生成时间
     model_used: str = ""  # 使用的模型
+    
+    # v2.0 新增：叙事状态追踪
+    narrative_state: DailyNarrativeState = field(default_factory=DailyNarrativeState)
 
     def get_current_entry(
         self, current_time: Optional[datetime] = None
@@ -521,6 +861,8 @@ class DailySchedule:
             "entries": [e.to_dict() for e in self.entries],
             "generated_at": self.generated_at,
             "model_used": self.model_used,
+            # v2.0 新增
+            "narrative_state": self.narrative_state.to_dict(),
         }
 
     @classmethod
@@ -534,6 +876,10 @@ class DailySchedule:
         Returns:
             DailySchedule 实例
         """
+        # 解析叙事状态
+        narrative_state_data = data.get("narrative_state", {})
+        narrative_state = DailyNarrativeState.from_dict(narrative_state_data) if narrative_state_data else DailyNarrativeState()
+        
         schedule = cls(
             date=data.get("date", ""),
             day_of_week=data.get("day_of_week", ""),
@@ -542,6 +888,7 @@ class DailySchedule:
             character_persona=data.get("character_persona", ""),
             generated_at=data.get("generated_at", ""),
             model_used=data.get("model_used", ""),
+            narrative_state=narrative_state,
         )
 
         # 解析条目

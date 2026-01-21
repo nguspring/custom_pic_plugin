@@ -22,9 +22,12 @@ from .narrative_manager import NarrativeManager
 from .caption_generator import CaptionGenerator
 
 # 导入动态日程系统模块
-from .schedule_models import DailySchedule, ScheduleEntry
+from .schedule_models import DailySchedule, ScheduleEntry, SceneVariation
 from .schedule_generator import ScheduleGenerator
 from .scene_action_generator import SceneActionGenerator
+
+# 导入共享工具
+from .shared_utils import MockUserInfo, MockGroupInfo, MockChatInfo, extract_stream_info, create_mock_message
 
 logger = get_logger("auto_selfie_task")
 
@@ -297,130 +300,6 @@ class AutoSelfieTask(AsyncTask):
         
         return allowed_streams
 
-    async def _check_should_trigger(
-        self,
-        representative_stream,
-        schedule_mode: str,
-        target_times: List[str],
-        current_time_obj: datetime,
-        current_date_str: str,
-        current_timestamp: float,
-        interval_seconds: int
-    ) -> Tuple[bool, str, Optional[str], Optional[str]]:
-        """检查是否应该触发自拍
-        
-        Args:
-            representative_stream: 代表流（用于状态检查）
-            schedule_mode: 调度模式
-            target_times: 目标时间点列表
-            current_time_obj: 当前时间对象
-            current_date_str: 当前日期字符串
-            current_timestamp: 当前时间戳
-            interval_seconds: 间隔秒数
-            
-        Returns:
-            Tuple[是否触发, 触发类型, 场景描述, 匹配的时间点]
-        """
-        stream_id = representative_stream.stream_id
-        current_hm = current_time_obj.strftime("%H:%M")
-        
-        # [DEBUG-叙事] 记录检查信息 (频率控制: 每5分钟一次)
-        should_log_debug = (current_timestamp - self._last_debug_log_time) >= self._debug_log_interval
-        if should_log_debug:
-            self._last_debug_log_time = current_timestamp
-            logger.info(f"{self.log_prefix} [DEBUG-叙事] === 触发检查 (每5分钟记录一次) ===")
-            logger.info(f"{self.log_prefix} [DEBUG-叙事] 模式: {schedule_mode}, 当前时间: {current_hm}")
-            logger.info(f"{self.log_prefix} [DEBUG-叙事] 目标时间点: {target_times}")
-        
-        # 解析自定义时间场景配置
-        time_scenes = self._parse_time_scenes()
-        
-        # 处理 times 和 hybrid 模式的时间点触发
-        if schedule_mode in ("times", "hybrid"):
-            if stream_id not in self.last_send_dates:
-                self.last_send_dates[stream_id] = {}
-            
-            for t_str in target_times:
-                if ":" not in t_str or len(t_str) != 5:
-                    continue
-                
-                # 检查是否已经发送过
-                last_date = self.last_send_dates[stream_id].get(t_str, "")
-                if last_date == current_date_str:
-                    continue
-                
-                # 检查时间是否匹配 (±2分钟窗口)
-                try:
-                    t_hour, t_minute = map(int, t_str.split(':'))
-                    target_dt = current_time_obj.replace(hour=t_hour, minute=t_minute, second=0, microsecond=0)
-                    diff = abs((current_time_obj - target_dt).total_seconds())
-                    
-                    if diff < 120:
-                        logger.info(f"{self.log_prefix} [Times] 触发时间点 {t_str} (误差 {diff:.1f}s)")
-                        
-                        # 获取场景描述
-                        scene_description = None
-                        if t_str in time_scenes:
-                            scene_description = time_scenes[t_str]
-                            logger.info(f"{self.log_prefix} 使用自定义时间场景: {t_str} -> {scene_description}")
-                        else:
-                            # 尝试从叙事管理器获取场景
-                            if self.narrative_manager is not None:
-                                try:
-                                    current_scene = self.narrative_manager.get_current_scene()
-                                    if current_scene:
-                                        scene_description = current_scene.image_prompt
-                                        logger.info(f"{self.log_prefix} 使用叙事场景: {current_scene.scene_id}")
-                                except Exception as e:
-                                    logger.warning(f"{self.log_prefix} 获取叙事场景失败: {e}")
-                            
-                            # 如果还没有场景，尝试 LLM 生成
-                            if not scene_description:
-                                enable_llm_scene = self.plugin.get_config("auto_selfie.enable_llm_scene", False)
-                                if enable_llm_scene:
-                                    scene_description = await self._generate_llm_scene()
-                        
-                        return True, "times", scene_description, t_str
-                        
-                except ValueError:
-                    continue
-        
-        # 处理 interval 模式或 hybrid 模式的 interval 补充
-        if schedule_mode == "interval" or (schedule_mode == "hybrid" and not self._is_near_times_point(current_hm, target_times, margin_minutes=30)):
-            last_time = self.last_send_time.get(stream_id, 0)
-            
-            # 首次运行
-            if last_time == 0:
-                random_wait = random.uniform(0, interval_seconds)
-                self.last_send_time[stream_id] = current_timestamp + random_wait - interval_seconds
-                self._save_state()
-                logger.info(f"{self.log_prefix} [Interval] 首次初始化，将在 {random_wait/60:.1f} 分钟后触发")
-                return False, "", None, None
-            
-            # 检查是否到达间隔
-            if current_timestamp - last_time >= interval_seconds:
-                # hybrid 模式需要概率检查
-                if schedule_mode == "hybrid":
-                    probability = self.plugin.get_config("auto_selfie.interval_probability", 0.3)
-                    if random.random() > probability:
-                        logger.debug(f"{self.log_prefix} [Hybrid-Interval] 概率检查未通过 (p={probability})")
-                        return False, "", None, None
-                
-                # 随机偏移
-                random_offset = random.uniform(-0.2, 0.2) * interval_seconds
-                if current_timestamp - last_time >= interval_seconds + random_offset:
-                    logger.info(f"{self.log_prefix} [Interval] 触发间隔自拍")
-                    
-                    # 尝试 LLM 生成场景
-                    scene_description = None
-                    enable_llm_scene = self.plugin.get_config("auto_selfie.enable_llm_scene", False)
-                    if enable_llm_scene:
-                        scene_description = await self._generate_llm_scene()
-                    
-                    return True, "interval", scene_description, None
-        
-        return False, "", None, None
-
     async def _generate_selfie_content_once(
         self,
         representative_stream,
@@ -509,42 +388,8 @@ class AutoSelfieTask(AsyncTask):
                     ask_message = random.choice(templates)
             
             # 3. 生成图片
-            # 构造 Mock 对象
-            class MockUserInfo:
-                def __init__(self, user_id, user_nickname, platform):
-                    self.user_id = user_id
-                    self.user_nickname = user_nickname
-                    self.platform = platform
-            
-            class MockGroupInfo:
-                def __init__(self, group_id, group_name, group_platform):
-                    self.group_id = group_id
-                    self.group_name = group_name
-                    self.group_platform = group_platform
-
-            class MockChatInfo:
-                def __init__(self, platform, group_info=None):
-                    self.platform = platform
-                    self.group_info = group_info
-
-            s_user_id = getattr(chat_stream.user_info, "user_id", "")
-            s_user_nickname = getattr(chat_stream.user_info, "user_nickname", "User")
-            s_platform = getattr(chat_stream, "platform", "unknown")
-            
-            is_group = getattr(chat_stream, "is_group", False)
-            s_group_id = getattr(chat_stream, "group_id", "") if is_group else ""
-            s_group_name = getattr(chat_stream, "group_name", "") if is_group else ""
-            
-            user_info = MockUserInfo(s_user_id, s_user_nickname, s_platform)
-            group_info = MockGroupInfo(s_group_id, s_group_name, s_platform) if is_group else None
-            chat_info = MockChatInfo(s_platform, group_info)
-            
-            mock_message = DatabaseMessages()  # type: ignore
-            mock_message.message_id = f"auto_selfie_{int(time.time())}"
-            mock_message.time = time.time()
-            mock_message.user_info = user_info  # type: ignore[assignment]
-            mock_message.chat_info = chat_info  # type: ignore[assignment]
-            mock_message.processed_plain_text = "auto selfie task"
+            # 使用共享工具创建 Mock 对象
+            mock_message = create_mock_message(chat_stream, "auto_selfie")
             
             action_data = {
                 "description": "auto selfie",
@@ -752,174 +597,6 @@ class AutoSelfieTask(AsyncTask):
         
         return result
 
-    async def _process_times_mode(self, stream, target_times: List[str], current_time_obj: datetime, current_date_str: str):
-        """处理指定时间点模式"""
-        stream_id = stream.stream_id
-        
-        # 确保该流的时间记录存在
-        if stream_id not in self.last_send_dates:
-            self.last_send_dates[stream_id] = {}
-        
-        # 解析自定义时间场景配置
-        time_scenes = self._parse_time_scenes()
-            
-        current_hm = current_time_obj.strftime("%H:%M")
-        
-        for t_str in target_times:
-            # 1. 简单验证格式
-            if ":" not in t_str or len(t_str) != 5:
-                continue
-                
-            # 2. 检查是否已经发送过
-            last_date = self.last_send_dates[stream_id].get(t_str, "")
-            if last_date == current_date_str:
-                continue
-                
-            # 3. 检查时间是否匹配 (考虑前后 2 分钟窗口)
-            try:
-                # 解析目标时间
-                t_hour, t_minute = map(int, t_str.split(':'))
-                # 构造当天的目标时间
-                target_dt = current_time_obj.replace(hour=t_hour, minute=t_minute, second=0, microsecond=0)
-                
-                # 计算时间差（秒）
-                diff = abs((current_time_obj - target_dt).total_seconds())
-                
-                # 允许 120 秒 (2分钟) 的误差窗口
-                # 这样即使任务调度有延迟，或者刚才错过了几十秒，也能补发
-                if diff < 120:
-                    logger.info(f"[AutoSelfie] 流 {stream_id} 触发时间点 {t_str} (误差 {diff:.1f}s)，准备发送自拍")
-                    
-                    # 检查是否有自定义场景描述
-                    scene_description: Optional[str] = None
-                    if t_str in time_scenes:
-                        scene_description = time_scenes[t_str]
-                        logger.info(f"{self.log_prefix} 使用自定义时间场景: {t_str} -> {scene_description}")
-                    else:
-                        # 没有自定义场景时，检查是否启用 LLM 智能场景判断
-                        enable_llm_scene = self.plugin.get_config("auto_selfie.enable_llm_scene", False)
-                        if enable_llm_scene:
-                            scene_description = await self._generate_llm_scene()
-                            if scene_description:
-                                logger.info(f"{self.log_prefix} Times模式: LLM 生成场景描述: {scene_description}")
-                    
-                    # 发送（带场景描述）
-                    await self._trigger_selfie_for_stream(stream, description=scene_description)
-                    
-                    # 更新状态
-                    self.last_send_dates[stream_id][t_str] = current_date_str
-                    self._save_state()
-                    # 一次 run 只触发一个时间点即可
-                    break
-            except Exception as e:
-                # 解析时间出错忽略
-                continue
-
-    async def _process_interval_mode(self, stream, stream_id: str, current_timestamp: float, interval_seconds: int):
-        """处理倒计时模式"""
-        # 检查时间间隔
-        last_time = self.last_send_time.get(stream_id, 0)
-        
-        # 首次运行的处理逻辑
-        if last_time == 0:
-            random_wait = random.uniform(0, interval_seconds)
-            self.last_send_time[stream_id] = current_timestamp + random_wait - interval_seconds
-            self._save_state()
-            logger.info(f"[AutoSelfie] 流 {stream_id} 首次初始化，将在 {random_wait/60:.1f} 分钟后触发第一次自拍")
-            return
-
-        # 检查是否到达时间间隔
-        if current_timestamp - last_time >= interval_seconds:
-            # 增加一些随机性，避免所有群同时发（±20%的随机浮动）
-            random_offset = random.uniform(-0.2, 0.2) * interval_seconds
-            
-            if current_timestamp - last_time >= interval_seconds + random_offset:
-                logger.info(f"[AutoSelfie] 流 {stream_id} 触发时间到 (Interval)，准备发送自拍")
-                
-                # [新增] 检查是否启用 LLM 智能场景判断
-                scene_description: Optional[str] = None
-                enable_llm_scene = self.plugin.get_config("auto_selfie.enable_llm_scene", False)
-                if enable_llm_scene:
-                    scene_description = await self._generate_llm_scene()
-                    if scene_description:
-                        logger.info(f"{self.log_prefix} LLM 生成场景描述: {scene_description}")
-                
-                await self._trigger_selfie_for_stream(stream, description=scene_description)
-                self.last_send_time[stream_id] = current_timestamp
-                self._save_state()
-
-    async def _process_hybrid_mode(
-        self,
-        stream,
-        target_times: List[str],
-        current_time_obj: datetime,
-        current_date_str: str,
-        current_timestamp: float,
-        interval_seconds: int
-    ):
-        """处理混合模式
-        
-        混合模式的逻辑：
-        1. 优先检查 times 模式的时间点（主线剧情）
-        2. 如果不在任何 times 时间点附近，检查 interval 条件（补充内容）
-        3. 使用共享的叙事状态
-        4. interval 触发需要满足冷却条件，避免与 times 冲突
-        """
-        stream_id = stream.stream_id
-        current_hm = current_time_obj.strftime("%H:%M")
-        
-        # [DEBUG-叙事] 记录 hybrid 模式入口信息 (频率控制: 每5分钟一次)
-        current_ts = current_timestamp
-        should_log_debug = (current_ts - self._last_debug_log_time) >= self._debug_log_interval
-        
-        if should_log_debug:
-            self._last_debug_log_time = current_ts
-            logger.info(f"{self.log_prefix} [DEBUG-叙事] === Hybrid模式检查开始 (每5分钟记录一次) ===")
-            logger.info(f"{self.log_prefix} [DEBUG-叙事] 流ID: {stream_id}, 当前时间: {current_hm}, 日期: {current_date_str}")
-            logger.info(f"{self.log_prefix} [DEBUG-叙事] 目标时间点: {target_times}")
-            logger.info(f"{self.log_prefix} [DEBUG-叙事] NarrativeManager状态: {'已初始化' if self.narrative_manager is not None else '未初始化'}")
-            logger.info(f"{self.log_prefix} [DEBUG-叙事] CaptionGenerator状态: {'已初始化' if self.caption_generator is not None else '未初始化'}")
-            
-            # 如果叙事管理器已初始化，输出更多状态信息
-            if self.narrative_manager is not None:
-                try:
-                    state = self.narrative_manager.state
-                    if state:
-                        logger.info(f"{self.log_prefix} [DEBUG-叙事] 叙事状态 - 日期: {state.date}, 剧本: {state.script_id}")
-                        logger.info(f"{self.log_prefix} [DEBUG-叙事] 叙事状态 - 已完成场景: {state.completed_scenes}")
-                        logger.info(f"{self.log_prefix} [DEBUG-叙事] 叙事状态 - 当前情绪: {state.current_mood}")
-                    else:
-                        logger.warning(f"{self.log_prefix} [DEBUG-叙事] 叙事状态为 None")
-                except Exception as e:
-                    logger.warning(f"{self.log_prefix} [DEBUG-叙事] 读取叙事状态失败: {e}")
-        
-        # 步骤1: 检查是否有 times 模式的时间点需要触发
-        times_triggered = await self._check_times_trigger(
-            stream=stream,
-            stream_id=stream_id,
-            target_times=target_times,
-            current_time_obj=current_time_obj,
-            current_date_str=current_date_str
-        )
-        
-        if times_triggered:
-            return  # times 已触发，本轮结束
-        
-        # 步骤2: 检查 interval 补充触发条件
-        interval_probability = self.plugin.get_config("auto_selfie.interval_probability", 0.3)
-        
-        # 只有当不在 times 时间点附近（±30分钟）时才考虑 interval
-        if not self._is_near_times_point(current_hm, target_times, margin_minutes=30):
-            await self._check_interval_supplement(
-                stream=stream,
-                stream_id=stream_id,
-                current_timestamp=current_timestamp,
-                interval_seconds=interval_seconds,
-                probability=interval_probability
-            )
-        else:
-            logger.debug(f"{self.log_prefix} 流 {stream_id} 在 times 时间点附近，跳过 interval 检查")
-
     def _is_near_times_point(self, current_hm: str, target_times: List[str], margin_minutes: int = 30) -> bool:
         """检查当前时间是否在任意 times 时间点附近
         
@@ -959,171 +636,6 @@ class AutoSelfieTask(AsyncTask):
         except Exception as e:
             logger.warning(f"{self.log_prefix} 时间点检查失败: {e}")
             return False
-
-    async def _check_times_trigger(
-        self,
-        stream,
-        stream_id: str,
-        target_times: List[str],
-        current_time_obj: datetime,
-        current_date_str: str
-    ) -> bool:
-        """检查并触发 times 模式，返回是否已触发
-        
-        Args:
-            stream: 聊天流对象
-            stream_id: 流 ID
-            target_times: 时间点列表
-            current_time_obj: 当前时间对象
-            current_date_str: 当前日期字符串
-            
-        Returns:
-            bool: 如果触发了发送返回 True
-        """
-        # 确保该流的时间记录存在
-        if stream_id not in self.last_send_dates:
-            self.last_send_dates[stream_id] = {}
-        
-        # 解析自定义时间场景配置
-        time_scenes = self._parse_time_scenes()
-        
-        for t_str in target_times:
-            # 1. 简单验证格式
-            if ":" not in t_str or len(t_str) != 5:
-                continue
-                
-            # 2. 检查是否已经发送过
-            last_date = self.last_send_dates[stream_id].get(t_str, "")
-            if last_date == current_date_str:
-                continue
-                
-            # 3. 检查时间是否匹配 (考虑前后 2 分钟窗口)
-            try:
-                # 解析目标时间
-                t_hour, t_minute = map(int, t_str.split(':'))
-                # 构造当天的目标时间
-                target_dt = current_time_obj.replace(hour=t_hour, minute=t_minute, second=0, microsecond=0)
-                
-                # 计算时间差（秒）
-                diff = abs((current_time_obj - target_dt).total_seconds())
-                
-                # 允许 120 秒 (2分钟) 的误差窗口
-                if diff < 120:
-                    logger.info(f"{self.log_prefix} [Hybrid-Times] 流 {stream_id} 触发时间点 {t_str} (误差 {diff:.1f}s)")
-                    
-                    # 检查是否有自定义场景描述
-                    scene_description: Optional[str] = None
-                    if t_str in time_scenes:
-                        scene_description = time_scenes[t_str]
-                        logger.info(f"{self.log_prefix} 使用自定义时间场景: {t_str} -> {scene_description}")
-                    else:
-                        # 尝试使用叙事管理器获取场景
-                        logger.info(f"{self.log_prefix} [DEBUG-叙事] 尝试从叙事管理器获取场景...")
-                        if self.narrative_manager is not None:
-                            try:
-                                logger.info(f"{self.log_prefix} [DEBUG-叙事] 调用 narrative_manager.get_current_scene()")
-                                current_scene = self.narrative_manager.get_current_scene()
-                                if current_scene:
-                                    scene_description = current_scene.image_prompt
-                                    logger.info(f"{self.log_prefix} [DEBUG-叙事] 获取到叙事场景: scene_id={current_scene.scene_id}, description={current_scene.description}")
-                                    logger.info(f"{self.log_prefix} [DEBUG-叙事] 场景时间范围: {current_scene.time_start} - {current_scene.time_end}")
-                                    logger.info(f"{self.log_prefix} [DEBUG-叙事] 场景image_prompt: {current_scene.image_prompt}")
-                                    logger.info(f"{self.log_prefix} 使用叙事场景: {current_scene.scene_id}")
-                                else:
-                                    logger.info(f"{self.log_prefix} [DEBUG-叙事] get_current_scene() 返回 None，当前时间不在任何场景范围内")
-                            except Exception as e:
-                                import traceback
-                                logger.warning(f"{self.log_prefix} 获取叙事场景失败: {e}")
-                                logger.warning(f"{self.log_prefix} [DEBUG-叙事] 获取场景失败堆栈: {traceback.format_exc()}")
-                        else:
-                            logger.warning(f"{self.log_prefix} [DEBUG-叙事] narrative_manager 为 None，无法获取叙事场景")
-                        
-                        # 如果还没有场景，检查是否启用 LLM 场景
-                        if not scene_description:
-                            enable_llm_scene = self.plugin.get_config("auto_selfie.enable_llm_scene", False)
-                            if enable_llm_scene:
-                                scene_description = await self._generate_llm_scene()
-                    
-                    # 发送（带场景描述，使用叙事配文）
-                    await self._trigger_selfie_for_stream(
-                        stream,
-                        description=scene_description,
-                        use_narrative_caption=True
-                    )
-                    
-                    # 更新状态
-                    self.last_send_dates[stream_id][t_str] = current_date_str
-                    self._save_state()
-                    return True
-                    
-            except Exception as e:
-                logger.warning(f"{self.log_prefix} 时间点 {t_str} 处理失败: {e}")
-                continue
-        
-        return False
-
-    async def _check_interval_supplement(
-        self,
-        stream,
-        stream_id: str,
-        current_timestamp: float,
-        interval_seconds: int,
-        probability: float = 0.3
-    ) -> bool:
-        """检查并触发 interval 补充，返回是否已触发
-        
-        在 hybrid 模式下，interval 作为补充内容，有概率触发
-        
-        Args:
-            stream: 聊天流对象
-            stream_id: 流 ID
-            current_timestamp: 当前时间戳
-            interval_seconds: 间隔秒数
-            probability: 触发概率 (0.0-1.0)
-            
-        Returns:
-            bool: 如果触发了发送返回 True
-        """
-        # 检查时间间隔
-        last_time = self.last_send_time.get(stream_id, 0)
-        
-        # 首次运行的处理逻辑
-        if last_time == 0:
-            random_wait = random.uniform(0, interval_seconds)
-            self.last_send_time[stream_id] = current_timestamp + random_wait - interval_seconds
-            self._save_state()
-            logger.info(f"{self.log_prefix} [Hybrid-Interval] 流 {stream_id} 首次初始化")
-            return False
-        
-        # 检查是否到达时间间隔
-        if current_timestamp - last_time >= interval_seconds:
-            # 概率检查
-            if random.random() > probability:
-                logger.debug(f"{self.log_prefix} [Hybrid-Interval] 流 {stream_id} 概率检查未通过 (p={probability})")
-                return False
-            
-            # 增加一些随机性
-            random_offset = random.uniform(-0.2, 0.2) * interval_seconds
-            
-            if current_timestamp - last_time >= interval_seconds + random_offset:
-                logger.info(f"{self.log_prefix} [Hybrid-Interval] 流 {stream_id} 触发补充自拍")
-                
-                # 检查是否启用 LLM 智能场景判断
-                scene_description: Optional[str] = None
-                enable_llm_scene = self.plugin.get_config("auto_selfie.enable_llm_scene", False)
-                if enable_llm_scene:
-                    scene_description = await self._generate_llm_scene()
-                
-                await self._trigger_selfie_for_stream(
-                    stream,
-                    description=scene_description,
-                    use_narrative_caption=True
-                )
-                self.last_send_time[stream_id] = current_timestamp
-                self._save_state()
-                return True
-        
-        return False
 
     def _is_sleep_time(self) -> bool:
         """检查当前是否处于睡眠时间"""
@@ -1494,54 +1006,8 @@ Now generate for current time ({time_str}):"""
             # 3. 调用 Action 生成图片
             from .pic_action import CustomPicAction
             
-            # 构造虚拟消息对象 (DatabaseMessages) 用于 Action 初始化
-            # 由于DatabaseMessages比较复杂且字段多变，我们尽可能提供必要的字段
-            
-            class MockUserInfo:
-                def __init__(self, user_id, user_nickname, platform):
-                    self.user_id = user_id
-                    self.user_nickname = user_nickname
-                    self.platform = platform
-            
-            class MockGroupInfo:
-                def __init__(self, group_id, group_name, group_platform):
-                    self.group_id = group_id
-                    self.group_name = group_name
-                    self.group_platform = group_platform
-
-            class MockChatInfo:
-                def __init__(self, platform, group_info=None):
-                    self.platform = platform
-                    self.group_info = group_info
-
-            # 获取流信息
-            # ChatStream 对象属性可能与数据库模型不同，需要做适配
-            s_user_id = getattr(chat_stream.user_info, "user_id", "")
-            s_user_nickname = getattr(chat_stream.user_info, "user_nickname", "User")
-            s_platform = getattr(chat_stream, "platform", "unknown")
-            
-            is_group = False
-            s_group_id = ""
-            s_group_name = ""
-            
-            # 尝试判断是否群聊
-            # 使用 getattr 安全获取属性
-            if getattr(chat_stream, "is_group", False):
-                is_group = True
-                s_group_id = getattr(chat_stream, "group_id", "")
-                s_group_name = getattr(chat_stream, "group_name", "")
-            
-            user_info = MockUserInfo(s_user_id, s_user_nickname, s_platform)
-            group_info = MockGroupInfo(s_group_id, s_group_name, s_platform) if is_group else None
-            chat_info = MockChatInfo(s_platform, group_info)
-            
-            # 构造 Mock Message
-            mock_message = DatabaseMessages() # type: ignore
-            mock_message.message_id = f"auto_selfie_{int(time.time())}"
-            mock_message.time = time.time()
-            mock_message.user_info = user_info # type: ignore
-            mock_message.chat_info = chat_info # type: ignore
-            mock_message.processed_plain_text = "auto selfie task"
+            # 使用共享工具创建 Mock 消息对象
+            mock_message = create_mock_message(chat_stream, "auto_selfie")
             
             # 构造 action_data
             action_data = {
@@ -1872,10 +1338,11 @@ Now generate for current time ({time_str}):"""
             # 间隔补充模式：优先尝试读取当前时间对应的日程条目
             logger.info(f"{self.log_prefix} [Smart-Interval] 使用间隔补充模式生成内容")
             
-            # 【修复 v2】使用就近条目策略 + 智能场景调整
+            # 【修复 v3】使用就近条目策略 + 场景变体 + 智能场景调整
             interval_schedule = await self._ensure_daily_schedule()
             interval_entry: Optional[ScheduleEntry] = None
             time_relation: str = ""  # before/after/within
+            selected_variation: Optional[SceneVariation] = None  # 选择的场景变体
             
             if interval_schedule:
                 # 首先尝试精确匹配（当前时间在条目的时间范围内）
@@ -1898,20 +1365,62 @@ Now generate for current time ({time_str}):"""
                             f"{interval_entry.time_point} - {interval_entry.activity_description} "
                             f"(时间关系: {time_relation})"
                         )
+                
+                # 【新增】尝试获取场景变体以避免重复
+                if interval_entry and interval_entry.scene_variations:
+                    # 优先获取未使用的变体
+                    selected_variation = interval_entry.get_unused_variation()
+                    
+                    if selected_variation:
+                        # 标记变体已使用
+                        interval_entry.mark_variation_used(selected_variation.variation_id)
+                        logger.info(
+                            f"{self.log_prefix} [Smart-Interval-Variation] 使用场景变体: "
+                            f"{selected_variation.variation_id} - {selected_variation.description}"
+                        )
+                    else:
+                        # 所有变体都已使用，获取下一个变体（循环使用）
+                        selected_variation = interval_entry.get_next_variation()
+                        if selected_variation:
+                            interval_entry.mark_variation_used(selected_variation.variation_id)
+                            logger.info(
+                                f"{self.log_prefix} [Smart-Interval-Variation] 所有变体已用过，"
+                                f"循环使用变体: {selected_variation.variation_id} - {selected_variation.description}"
+                            )
+                    
+                    # 记录变体使用情况
+                    logger.debug(
+                        f"{self.log_prefix} [Smart-Interval-Variation] 条目 {interval_entry.time_point} "
+                        f"变体使用次数: {interval_entry.interval_use_count}, "
+                        f"可用变体: {len(interval_entry.scene_variations)}"
+                    )
+                elif interval_entry:
+                    # 没有预定义变体，但条目存在
+                    logger.info(
+                        f"{self.log_prefix} [Smart-Interval] 条目无预定义变体，"
+                        f"将使用 LLM 场景调整以增加变化"
+                    )
             
             if interval_entry:
                 # 有匹配的日程条目，使用日程驱动方式
-                # 传递时间关系用于智能调整配文
+                # 传递时间关系和变体用于智能调整
                 logger.info(
                     f"{self.log_prefix} [Smart-Interval] 使用日程条目驱动场景: "
                     f"地点={interval_entry.location}, 服装={interval_entry.outfit}, "
-                    f"时间关系={time_relation}"
+                    f"时间关系={time_relation}, 变体={'是' if selected_variation else '否'}"
                 )
                 image_base64, caption, prompt_used = await self._generate_selfie_content_with_entry(
                     representative_stream=representative_stream,
                     schedule_entry=interval_entry,
-                    time_relation=time_relation,  # 新增参数
+                    time_relation=time_relation,
+                    scene_variation=selected_variation,  # 新增：传递场景变体
                 )
+                
+                # 保存日程文件以持久化变体使用状态
+                if interval_schedule and self.schedule_generator:
+                    interval_schedule.save_to_file(
+                        self.schedule_generator.get_schedule_file_path()
+                    )
             else:
                 # 没有匹配的日程条目（日程为空），回退到 LLM 生成场景
                 logger.info(f"{self.log_prefix} [Smart-Interval] 无日程条目，使用 LLM 生成场景")
@@ -2007,6 +1516,7 @@ Now generate for current time ({time_str}):"""
         representative_stream,
         schedule_entry: ScheduleEntry,
         time_relation: str = "within",
+        scene_variation: Optional[SceneVariation] = None,
     ) -> Tuple[Optional[str], str, str]:
         """使用日程条目生成自拍图片和配文
         
@@ -2017,6 +1527,7 @@ Now generate for current time ({time_str}):"""
                 - "within": 在条目时间范围内（默认，正常场景）
                 - "before": 当前时间在条目时间之前（准备中、期待中）
                 - "after": 当前时间在条目时间之后（结束后、休息中）
+            scene_variation: 可选的场景变体，用于避免重复场景
             
         Returns:
             Tuple[图片base64, 配文, 使用的prompt]
@@ -2026,7 +1537,14 @@ Now generate for current time ({time_str}):"""
         chat_stream = representative_stream
         stream_id = chat_stream.stream_id
         
-        logger.info(f"{self.log_prefix} [Smart] 使用日程条目生成自拍内容")
+        # 日志记录
+        if scene_variation:
+            logger.info(
+                f"{self.log_prefix} [Smart] 使用日程条目+场景变体生成自拍内容: "
+                f"变体={scene_variation.variation_id} ({scene_variation.description})"
+            )
+        else:
+            logger.info(f"{self.log_prefix} [Smart] 使用日程条目生成自拍内容")
         
         try:
             # 1. 获取配置
@@ -2037,47 +1555,24 @@ Now generate for current time ({time_str}):"""
             scene_generator = SceneActionGenerator(self.plugin)
             caption_context = scene_generator.create_caption_context(schedule_entry)
             
-            # 3. 生成配文（传递时间关系用于智能调整）
+            # 2.1 如果有变体，使用变体的配文主题
+            variation_caption_theme: Optional[str] = None
+            if scene_variation and scene_variation.caption_theme:
+                variation_caption_theme = scene_variation.caption_theme
+                logger.debug(
+                    f"{self.log_prefix} [Smart-Variation] 使用变体配文主题: {variation_caption_theme}"
+                )
+            
+            # 3. 生成配文（传递时间关系和变体信息用于智能调整）
             caption = await self._generate_caption_for_entry(
-                schedule_entry, caption_context, time_relation
+                schedule_entry,
+                caption_context,
+                time_relation,
+                scene_variation=scene_variation,  # 传递变体信息
             )
             
-            # 4. 构造 Mock 对象
-            class MockUserInfo:
-                def __init__(self, user_id, user_nickname, platform):
-                    self.user_id = user_id
-                    self.user_nickname = user_nickname
-                    self.platform = platform
-            
-            class MockGroupInfo:
-                def __init__(self, group_id, group_name, group_platform):
-                    self.group_id = group_id
-                    self.group_name = group_name
-                    self.group_platform = group_platform
-
-            class MockChatInfo:
-                def __init__(self, platform, group_info=None):
-                    self.platform = platform
-                    self.group_info = group_info
-
-            s_user_id = getattr(chat_stream.user_info, "user_id", "")
-            s_user_nickname = getattr(chat_stream.user_info, "user_nickname", "User")
-            s_platform = getattr(chat_stream, "platform", "unknown")
-            
-            is_group = getattr(chat_stream, "is_group", False)
-            s_group_id = getattr(chat_stream, "group_id", "") if is_group else ""
-            s_group_name = getattr(chat_stream, "group_name", "") if is_group else ""
-            
-            user_info = MockUserInfo(s_user_id, s_user_nickname, s_platform)
-            group_info = MockGroupInfo(s_group_id, s_group_name, s_platform) if is_group else None
-            chat_info = MockChatInfo(s_platform, group_info)
-            
-            mock_message = DatabaseMessages()  # type: ignore
-            mock_message.message_id = f"smart_selfie_{int(time.time())}"
-            mock_message.time = time.time()
-            mock_message.user_info = user_info  # type: ignore[assignment]
-            mock_message.chat_info = chat_info  # type: ignore[assignment]
-            mock_message.processed_plain_text = "smart selfie task"
+            # 4. 使用共享工具创建 Mock 消息对象
+            mock_message = create_mock_message(chat_stream, "smart_selfie")
             
             action_data = {
                 "description": "smart selfie",
@@ -2097,9 +1592,19 @@ Now generate for current time ({time_str}):"""
                 action_message=mock_message
             )
             
-            # 5. 根据时间关系调整场景（LLM 驱动）
+            # 5. 确定场景提示词
             adjusted_scene_prompt: Optional[str] = None
-            if time_relation != "within":
+            
+            # 5.1 优先使用变体的场景提示词
+            if scene_variation:
+                # 使用变体创建场景提示词
+                adjusted_scene_prompt = schedule_entry.create_variation_prompt(scene_variation)
+                logger.info(
+                    f"{self.log_prefix} [Smart-Variation] 使用变体场景提示词: "
+                    f"{adjusted_scene_prompt[:100]}..."
+                )
+            elif time_relation != "within":
+                # 5.2 没有变体但时间关系不是 within，使用 LLM 调整场景
                 logger.info(
                     f"{self.log_prefix} [Smart] 检测到时间关系为 '{time_relation}'，"
                     f"尝试使用 LLM 调整场景以增加变化"
@@ -2316,6 +1821,7 @@ Now generate for the '{relation_desc}' state of "{schedule_entry.activity_descri
         schedule_entry: ScheduleEntry,
         caption_context: Dict[str, str],
         time_relation: str = "within",
+        scene_variation: Optional[SceneVariation] = None,
     ) -> str:
         """为日程条目生成配文
         
@@ -2324,43 +1830,62 @@ Now generate for the '{relation_desc}' state of "{schedule_entry.activity_descri
         - before: 在日程时间之前，使用"准备中/期待中"的配文风格
         - after: 在日程时间之后，使用"刚结束/休息中"的配文风格
         
+        如果传入了 scene_variation，将优先使用变体的配文主题和情绪。
+        
         Args:
             schedule_entry: 日程条目
             caption_context: 配文上下文
             time_relation: 时间关系 ("within", "before", "after")
+            scene_variation: 可选的场景变体
             
         Returns:
             生成的配文
         """
-        # 根据时间关系调整场景描述
-        adjusted_scene = schedule_entry.activity_description
-        adjusted_mood = schedule_entry.mood
+        # 确定场景描述和情绪
+        adjusted_scene: str
+        adjusted_mood: str
+        caption_theme: str
         
-        if time_relation == "before":
-            # 在日程时间之前：准备中、期待中的状态
-            adjusted_scene = f"准备{schedule_entry.activity_description}"
+        # 如果有场景变体，优先使用变体的信息
+        if scene_variation:
+            adjusted_scene = scene_variation.description or schedule_entry.activity_description
+            adjusted_mood = scene_variation.mood or schedule_entry.mood
+            caption_theme = scene_variation.caption_theme or schedule_entry.suggested_caption_theme
             logger.info(
-                f"{self.log_prefix} [Smart-TimeRelation] 时间在日程之前，"
-                f"调整场景为'准备中'风格: {adjusted_scene}"
+                f"{self.log_prefix} [Smart-Variation] 使用变体配文信息: "
+                f"场景={adjusted_scene}, 情绪={adjusted_mood}, 主题={caption_theme}"
             )
-            # 可以调整情绪为更轻松/期待的
-            if adjusted_mood in ["neutral", "relaxed"]:
-                adjusted_mood = "anticipating"
-        elif time_relation == "after":
-            # 在日程时间之后：结束后、休息中的状态
-            adjusted_scene = f"{schedule_entry.activity_description}结束后休息中"
-            logger.info(
-                f"{self.log_prefix} [Smart-TimeRelation] 时间在日程之后，"
-                f"调整场景为'休息中'风格: {adjusted_scene}"
-            )
-            # 可以调整情绪为更放松的
-            if adjusted_mood in ["neutral", "focused"]:
-                adjusted_mood = "relaxed"
         else:
-            logger.debug(
-                f"{self.log_prefix} [Smart-TimeRelation] 时间在日程范围内，"
-                f"使用原始场景: {adjusted_scene}"
-            )
+            # 根据时间关系调整场景描述
+            adjusted_scene = schedule_entry.activity_description
+            adjusted_mood = schedule_entry.mood
+            caption_theme = schedule_entry.suggested_caption_theme
+            
+            if time_relation == "before":
+                # 在日程时间之前：准备中、期待中的状态
+                adjusted_scene = f"准备{schedule_entry.activity_description}"
+                logger.info(
+                    f"{self.log_prefix} [Smart-TimeRelation] 时间在日程之前，"
+                    f"调整场景为'准备中'风格: {adjusted_scene}"
+                )
+                # 可以调整情绪为更轻松/期待的
+                if adjusted_mood in ["neutral", "relaxed"]:
+                    adjusted_mood = "anticipating"
+            elif time_relation == "after":
+                # 在日程时间之后：结束后、休息中的状态
+                adjusted_scene = f"{schedule_entry.activity_description}结束后休息中"
+                logger.info(
+                    f"{self.log_prefix} [Smart-TimeRelation] 时间在日程之后，"
+                    f"调整场景为'休息中'风格: {adjusted_scene}"
+                )
+                # 可以调整情绪为更放松的
+                if adjusted_mood in ["neutral", "focused"]:
+                    adjusted_mood = "relaxed"
+            else:
+                logger.debug(
+                    f"{self.log_prefix} [Smart-TimeRelation] 时间在日程范围内，"
+                    f"使用原始场景: {adjusted_scene}"
+                )
         
         # 首先尝试使用叙事配文系统
         if self.caption_generator is not None:
@@ -2372,28 +1897,30 @@ Now generate for the '{relation_desc}' state of "{schedule_entry.activity_descri
                 except ValueError:
                     caption_type = CaptionType.SHARE
                 
-                # 根据时间关系调整配文类型
-                if time_relation == "before":
-                    # 准备阶段更适合使用分享或独白类型
-                    if caption_type not in [CaptionType.SHARE, CaptionType.MONOLOGUE]:
-                        caption_type = CaptionType.SHARE
-                elif time_relation == "after":
-                    # 结束后更适合使用独白或分享类型
-                    if caption_type not in [CaptionType.MONOLOGUE, CaptionType.SHARE]:
-                        caption_type = CaptionType.MONOLOGUE
+                # 根据时间关系调整配文类型（仅在没有变体时）
+                if not scene_variation:
+                    if time_relation == "before":
+                        # 准备阶段更适合使用分享或独白类型
+                        if caption_type not in [CaptionType.SHARE, CaptionType.MONOLOGUE]:
+                            caption_type = CaptionType.SHARE
+                    elif time_relation == "after":
+                        # 结束后更适合使用独白或分享类型
+                        if caption_type not in [CaptionType.MONOLOGUE, CaptionType.SHARE]:
+                            caption_type = CaptionType.MONOLOGUE
                 
                 caption = await self.caption_generator.generate_caption(
                     caption_type=caption_type,
                     scene_description=adjusted_scene,  # 使用调整后的场景描述
                     narrative_context=caption_context.get("activity_detail", ""),
-                    image_prompt=schedule_entry.suggested_caption_theme,
+                    image_prompt=caption_theme,  # 使用（可能来自变体的）配文主题
                     mood=adjusted_mood,  # 使用调整后的情绪
                 )
                 
                 if caption:
+                    variation_info = f", 变体={scene_variation.variation_id}" if scene_variation else ""
                     logger.info(
                         f"{self.log_prefix} [Smart] 配文生成成功 "
-                        f"(类型: {caption_type.value}, 时间关系: {time_relation})"
+                        f"(类型: {caption_type.value}, 时间关系: {time_relation}{variation_info})"
                     )
                     return caption
                     
