@@ -1040,7 +1040,10 @@ Now generate for current time ({time_str}):"""
         # 尝试加载或生成日程
         try:
             schedule_times = self.plugin.get_config(
-                "auto_selfie.schedule_times", ["08:00", "12:00", "20:00"]
+                "auto_selfie.schedule_times", [
+                    "07:30", "09:00", "10:30", "12:00",
+                    "14:00", "16:00", "18:00", "20:00", "22:00"
+                ]
             )
             
             # 角色名称和人设自动从 MaiBot 主配置读取（在 schedule_generator 内部处理）
@@ -1111,7 +1114,10 @@ Now generate for current time ({time_str}):"""
         
         # 获取配置的时间点
         schedule_times = self.plugin.get_config(
-            "auto_selfie.schedule_times", ["08:00", "12:00", "20:00"]
+            "auto_selfie.schedule_times", [
+                "07:30", "09:00", "10:30", "12:00",
+                "14:00", "16:00", "18:00", "20:00", "22:00"
+            ]
         )
         current_hm = current_time_obj.strftime("%H:%M")
         
@@ -1180,7 +1186,8 @@ Now generate for current time ({time_str}):"""
         # ================================================================
         if not current_entry and not matched_time:
             # 日程和回退都没有触发，检查间隔补充
-            enable_interval = self.plugin.get_config("auto_selfie.enable_interval_supplement", True)
+            # v3.6.2: 暂时禁用间隔补充功能，等待后续修复"就近条目"策略导致的重复场景问题
+            enable_interval = self.plugin.get_config("auto_selfie.enable_interval_supplement", False)
             
             if enable_interval:
                 # 检查是否在任何时间点附近（±30分钟），如果是则不触发间隔

@@ -591,11 +591,12 @@ class ScheduleGenerator:
                 return None
 
         # 设置默认时间范围
+        # 使用小窗口（±5分钟）确保在时间点附近准时触发
         time_point = data.get("time_point", "")
         if "time_range_start" not in data or not data["time_range_start"]:
-            data["time_range_start"] = self._adjust_time(time_point, -30)
+            data["time_range_start"] = self._adjust_time(time_point, -5)
         if "time_range_end" not in data or not data["time_range_end"]:
-            data["time_range_end"] = self._adjust_time(time_point, 60)
+            data["time_range_end"] = self._adjust_time(time_point, 5)
 
         # 标准化 caption_type
         caption_type = data.get("caption_type", "SHARE")
@@ -721,8 +722,8 @@ class ScheduleGenerator:
 
             entry = ScheduleEntry(
                 time_point=time_point,
-                time_range_start=self._adjust_time(time_point, -30),
-                time_range_end=self._adjust_time(time_point, 60),
+                time_range_start=self._adjust_time(time_point, -5),
+                time_range_end=self._adjust_time(time_point, 5),
                 activity_type=scene["activity_type"],
                 activity_description=scene["activity_description"],
                 activity_detail=scene.get("activity_detail", ""),

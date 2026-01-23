@@ -1088,7 +1088,10 @@ class CustomPicAction(BaseAction):
             today = datetime.now().strftime("%Y-%m-%d")
             
             schedule_times_config = self.get_config(
-                "auto_selfie.schedule_times", ["08:00", "12:00", "20:00"]
+                "auto_selfie.schedule_times", [
+                    "07:30", "09:00", "10:30", "12:00",
+                    "14:00", "16:00", "18:00", "20:00", "22:00"
+                ]
             )
             schedule_times: list[str] = (
                 list(schedule_times_config)

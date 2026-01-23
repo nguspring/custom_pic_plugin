@@ -59,7 +59,10 @@ def get_client_class(api_format: str):
     Returns:
         客户端类，如果不存在则返回OpenAIClient作为默认
     """
-    return CLIENT_MAPPING.get(api_format.lower(), OpenAIClient)
+    from .base_client import logger
+    client_class = CLIENT_MAPPING.get(api_format.lower(), OpenAIClient)
+    logger.debug(f"[ApiClient] format='{api_format}' -> client={client_class.__name__}")
+    return client_class
 
 
 class ApiClient:
