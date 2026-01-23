@@ -796,53 +796,118 @@ class CustomPicAction(BaseAction):
         return final_prompt
 
     def _load_hand_actions(self) -> List[str]:
-        """从外部 JSON 文件加载手部动作库
+        """获取手部动作库
         
-        支持用户自定义动作，文件路径: core/hand_actions.json
-        如果文件不存在或加载失败，返回默认动作列表
+        返回用于自拍模式随机选择的手部动作描述列表。
+        每个动作是一个英文描述字符串，用于 Stable Diffusion 提示词。
         
         Returns:
             List[str]: 手部动作描述列表
         """
-        import json
-        
-        # 默认动作（备用）
-        default_actions = [
+        return [
+            # 基础手势
             "peace sign, v sign",
             "thumbs up, positive gesture",
+            "thumbs down, negative gesture",
             "ok sign, hand gesture",
-            "finger heart, cute pose",
-            "hand on hip, confident",
+            "rock on sign, heavy metal gesture",
+            "shaka sign, hang loose",
+            "call me hand gesture",
+            "pointing at camera lens, engaging",
+            "fist pump, excited",
+            "saluting with one hand",
+            "clenched fist, fighting spirit",
+            "crossing fingers, wishing luck",
+            "showing palm, stop gesture",
+            # 触碰脸部
             "touching own cheek gently",
+            "leaning chin on hand, cute",
+            "hand near chin, thinking pose",
+            "covering mouth with hand, shy giggle",
+            "finger on lips, shushing",
+            "hand covering one eye, peeking",
+            # 整理头发
+            "playing with hair, messy look",
+            "tucking hair behind ear",
+            "fixing fringe, adjusting hair",
+            "hand on forehead, dramatic",
+            "scratching head, confused",
+            # 服饰相关
+            "pulling collar, flustered",
+            "touching neck, elegant",
+            "supporting jaw with hand",
+            "hand on hip, confident",
+            "hand akimbo, sassy",
+            "hand behind head, relaxed cool",
+            "hand resting on shoulder",
+            "adjusting sleeve, detail",
+            "fixing collar, neat",
+            "adjusting earring",
+            # 配饰相关
+            "wearing sunglasses on face",
+            "holding sunglasses, looking down",
+            "hand touching necklace",
+            "hand in pocket, casual",
+            # 依靠姿势
+            "resting arm on leg",
+            "hand on wall, leaning pose",
+            "hand on table, relaxing",
+            # 可爱手势
+            "finger heart, cute pose",
+            "blowing kiss, romantic",
+            "cat paw gesture, playful",
+            "bunny ears with fingers",
+            "holding invisible ball",
+            "winking with hand near face",
+            "pinky promise",
+            "making a heart shape with one arm",
+            "claw gesture, cute monster",
+            "framing face with hand",
+            # 持物动作 - 饮品
+            "holding coffee cup, steam rising",
+            "drinking from a straw",
+            "holding a milk tea bubble tea",
+            "holding a can of soda",
+            # 持物动作 - 食物
+            "holding a lollipop, colorful",
+            "eating ice cream, happy",
+            # 持物动作 - 花卉
+            "holding a flower, smelling it",
+            "holding a bouquet of flowers",
+            # 持物动作 - 物品
+            "holding a plush toy",
+            "holding a cute mascot doll",
+            "holding a pen, thinking",
+            "holding a book, reading",
+            "holding a fashion magazine",
+            "holding a microphone, singing",
+            "holding a game controller",
+            "holding a game console (Switch)",
+            "holding a musical instrument (ukulele)",
+            "holding a camera strap",
+            "holding a fan",
+            # 配饰展示
+            "wearing a watch on wrist",
+            "wearing a bracelet",
+            # 指向动作
+            "pointing at viewer, engaging",
+            "pointing up, eureka",
+            "pointing sideways, look here",
+            "beckoning with finger",
+            "thumbs pointing behind",
             "waving hand, greeting",
-            "hand near chin, thinking pose"
+            # 相机互动
+            "hand reaching out to camera",
+            "hand touching the camera lens",
+            "hand resting on chin, close-up",
+            "hand covering part of face",
+            "hand forming a frame",
+            "peace sign under chin",
+            "showing fingernails, manicure",
+            "palm resting on cheek, cute",
+            "fist under chin",
+            "elbow on table, hand supporting head",
         ]
-        
-        try:
-            # 构建配置文件路径
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            json_path = os.path.join(current_dir, "hand_actions.json")
-            
-            if os.path.exists(json_path):
-                with open(json_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    actions = data.get("hand_actions", [])
-                    if actions and isinstance(actions, list):
-                        logger.debug(f"{self.log_prefix} 从配置文件加载了 {len(actions)} 个手部动作")
-                        return actions
-                    else:
-                        logger.warning(f"{self.log_prefix} 手部动作配置文件格式无效，使用默认动作")
-                        return default_actions
-            else:
-                logger.info(f"{self.log_prefix} 手部动作配置文件不存在，使用默认动作")
-                return default_actions
-                
-        except json.JSONDecodeError as e:
-            logger.warning(f"{self.log_prefix} 手部动作配置文件 JSON 解析失败: {e}")
-            return default_actions
-        except Exception as e:
-            logger.warning(f"{self.log_prefix} 加载手部动作配置失败: {e}")
-            return default_actions
 
     def _get_selfie_reference_image(self) -> Optional[str]:
         """获取自拍参考图片的base64编码
