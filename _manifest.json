@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
   "name": "画家麦麦的自拍日常",
-  "version": "3.5.0",
+  "version": "3.5.1",
   "description": "画家麦麦的自拍日常 - 集智能绘画与自拍生成于一体的 MaiBot 插件。🎨 画图功能：支持文生图/图生图智能识别，兼容 OpenAI、豆包、Gemini、魔搭等多种 API，命令式风格转换，内置 7 个魔搭模型预设。📸 自拍功能：智能日程规划，动态场景描述，自动配文生成，支持自定义人设注入让配文更符合角色设定。提供动态模型切换、风格别名、结果缓存、智能参考搜索（内置 Bing 搜图）等高级特性。完全符合 MaiBot 插件开发标准。",
   "author": {
     "name": "Ptrel，Rabbit-Jia-Er，saberlights Kiuon，nguspring",

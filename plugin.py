@@ -241,7 +241,7 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name: str = "custom_pic_plugin"  # type: ignore[assignment]
-    plugin_version: str = "3.5.0"
+    plugin_version: str = "3.5.1"
     plugin_author: str = "Ptrel，Rabbit，saberlights Kiuon，nguspring"
     enable_plugin: bool = True  # type: ignore[assignment]
     dependencies: List[str] = []  # type: ignore[assignment]
@@ -393,7 +393,7 @@ class CustomPicPlugin(BasePlugin):
             ),
             "config_version": ConfigField(
                 type=str,
-                default="3.5.0-beta.14",
+                default="3.5.1",
                 description="插件配置版本号",
                 disabled=True,
                 order=2

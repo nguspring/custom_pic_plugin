@@ -699,10 +699,44 @@ class ScheduleGenerator:
         # 预定义的场景模板（带变体）
         fallback_scenes = self._get_fallback_scenes(is_holiday)
 
-        # 为每个时间点分配场景
-        for i, time_point in enumerate(schedule_times):
-            scene_index = i % len(fallback_scenes)
-            scene = fallback_scenes[scene_index]
+        # 定义默认场景对应的时间点（与 _get_fallback_scenes 中的顺序严格对应）
+        # 07:30, 09:00, 10:30, 12:00, 14:00, 16:00, 18:00, 20:00, 22:00
+        default_scene_times = [
+            "07:30", "09:00", "10:30", "12:00",
+            "14:00", "16:00", "18:00", "20:00", "22:00"
+        ]
+
+        # 辅助函数：计算分钟数
+        def get_minutes(t_str: str) -> int:
+            try:
+                h, m = map(int, t_str.split(':'))
+                return h * 60 + m
+            except ValueError:
+                return 0
+
+        # 为每个时间点分配最接近的场景
+        for time_point in schedule_times:
+            # 计算当前时间点的分钟数
+            target_mins = get_minutes(time_point)
+
+            # 寻找时间差最小的场景索引
+            best_index = 0
+            min_diff = float('inf')
+
+            for idx, default_time in enumerate(default_scene_times):
+                if idx >= len(fallback_scenes):
+                    break
+
+                scene_mins = get_minutes(default_time)
+                diff = abs(target_mins - scene_mins)
+
+                if diff < min_diff:
+                    min_diff = diff
+                    best_index = idx
+
+            # 使用最匹配的场景
+            scene = fallback_scenes[best_index]
+            logger.debug(f"时间点 {time_point} 匹配到回退场景: {default_scene_times[best_index]} - {scene['activity_description']}")
 
             # 解析场景变体
             scene_variations = []
