@@ -5,4 +5,4 @@
 
 from .plugin import CustomPicPlugin
 
-__all__ = ['CustomPicPlugin']
+__all__ = ["CustomPicPlugin"]

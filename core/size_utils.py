@@ -2,6 +2,7 @@
 
 提供统一的图片尺寸解析、验证和转换功能，供各API客户端复用
 """
+
 from typing import Tuple, Optional, Dict
 from src.common.logger import get_logger
 
@@ -78,7 +79,7 @@ async def select_size_with_llm(description: str, log_prefix: str = "") -> Option
         if success and response:
             # 清理响应
             size = response.strip().split()[0]  # 只取第一个词
-            size = size.strip('"\'')  # 移除引号
+            size = size.strip("\"'")  # 移除引号
 
             # 验证格式
             if validate_image_size(size):
@@ -129,10 +130,7 @@ def get_image_size(model_config: dict, llm_size: str = None, log_prefix: str = "
 
 
 async def get_image_size_async(
-    model_config: dict,
-    description: str = "",
-    llm_size: str = None,
-    log_prefix: str = ""
+    model_config: dict, description: str = "", llm_size: str = None, log_prefix: str = ""
 ) -> Tuple[str, Optional[str]]:
     """异步版本的图片尺寸获取逻辑
 
@@ -220,7 +218,7 @@ def parse_pixel_size(size: str, default_width: int = 1024, default_height: int =
     size_lower = size.lower().strip()
 
     # 尝试解析 "WxH" 或 "W*H" 格式
-    for separator in ['x', '*']:
+    for separator in ["x", "*"]:
         if separator in size_lower:
             try:
                 parts = size_lower.split(separator)
@@ -257,19 +255,19 @@ def validate_image_size(size: str) -> bool:
 
     try:
         # 格式1：仅分辨率（-2K、-4K）
-        if size.startswith('-'):
+        if size.startswith("-"):
             resolution = size[1:].strip().upper()
-            return resolution in ['1K', '2K', '4K']
+            return resolution in ["1K", "2K", "4K"]
 
         # 格式2：宽高比-分辨率（16:9-2K、1:1-4K）
-        if '-' in size and ':' in size:
-            parts = size.split('-', 1)
+        if "-" in size and ":" in size:
+            parts = size.split("-", 1)
             aspect_part = parts[0].strip()
             resolution = parts[1].strip().upper()
 
             # 验证宽高比部分
-            if ':' in aspect_part:
-                aspect_parts = aspect_part.split(':', 1)
+            if ":" in aspect_part:
+                aspect_parts = aspect_part.split(":", 1)
                 try:
                     w = int(aspect_parts[0].strip())
                     h = int(aspect_parts[1].strip())
@@ -279,12 +277,12 @@ def validate_image_size(size: str) -> bool:
                     return False
 
                 # 验证分辨率部分
-                return resolution in ['1K', '2K', '4K']
+                return resolution in ["1K", "2K", "4K"]
             return False
 
         # 格式3：纯宽高比（16:9、1:1）
-        if ':' in size and 'x' not in size.lower():
-            parts = size.split(':', 1)
+        if ":" in size and "x" not in size.lower():
+            parts = size.split(":", 1)
             try:
                 w = int(parts[0].strip())
                 h = int(parts[1].strip())
@@ -293,7 +291,7 @@ def validate_image_size(size: str) -> bool:
                 return False
 
         # 格式4：像素格式（1024x1024、512x512）
-        if 'x' in size.lower() or '*' in size:
+        if "x" in size.lower() or "*" in size:
             width, height = parse_pixel_size(size, 0, 0)
             return 64 <= width <= 4096 and 64 <= height <= 4096
 
@@ -339,9 +337,7 @@ def pixel_to_orientation(width: int, height: int) -> str:
 
 
 def find_closest_aspect_ratio(
-    width: int,
-    height: int,
-    supported_ratios: Optional[Dict[Tuple[int, int], str]] = None
+    width: int, height: int, supported_ratios: Optional[Dict[Tuple[int, int], str]] = None
 ) -> str:
     """查找最接近的支持宽高比
 
@@ -379,7 +375,7 @@ def find_closest_aspect_ratio(
     # 查找最接近的宽高比
     target_ratio = width / height
     closest_ratio = "1:1"
-    min_diff = float('inf')
+    min_diff = float("inf")
 
     for (w, h), ratio_str in supported_ratios.items():
         diff = abs(w / h - target_ratio)
@@ -390,10 +386,7 @@ def find_closest_aspect_ratio(
     return closest_ratio
 
 
-def pixel_size_to_gemini_aspect(
-    pixel_size: str,
-    log_prefix: str = ""
-) -> Optional[str]:
+def pixel_size_to_gemini_aspect(pixel_size: str, log_prefix: str = "") -> Optional[str]:
     """将像素格式转换为Gemini支持的宽高比
 
     Args:
@@ -403,7 +396,7 @@ def pixel_size_to_gemini_aspect(
     Returns:
         Gemini支持的宽高比字符串，如 "16:9"，失败返回None
     """
-    if not pixel_size or 'x' not in pixel_size.lower():
+    if not pixel_size or "x" not in pixel_size.lower():
         return None
 
     width, height = parse_pixel_size(pixel_size, 0, 0)
@@ -494,7 +487,7 @@ def size_to_orientation(size: str, default: str = "竖图") -> str:
         return size
 
     # 尝试解析像素格式
-    if 'x' in size.lower() or '*' in size:
+    if "x" in size.lower() or "*" in size:
         return pixel_size_to_orientation(size)
 
     return default

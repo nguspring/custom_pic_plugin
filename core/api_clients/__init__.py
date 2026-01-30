@@ -23,30 +23,30 @@ from .mengyuai_client import MengyuaiClient
 from .zai_client import ZaiClient
 
 __all__ = [
-    'BaseApiClient',
-    'OpenAIClient',
-    'OpenAIChatClient',
-    'DoubaoClient',
-    'GeminiClient',
-    'ModelscopeClient',
-    'ShatangyunClient',
-    'MengyuaiClient',
-    'ZaiClient',
-    'ApiClient',
-    'get_client_class',
+    "BaseApiClient",
+    "OpenAIClient",
+    "OpenAIChatClient",
+    "DoubaoClient",
+    "GeminiClient",
+    "ModelscopeClient",
+    "ShatangyunClient",
+    "MengyuaiClient",
+    "ZaiClient",
+    "ApiClient",
+    "get_client_class",
 ]
 
 
 # API格式到客户端类的映射
 CLIENT_MAPPING = {
-    'openai': OpenAIClient,
-    'openai-chat': OpenAIChatClient,
-    'doubao': DoubaoClient,
-    'gemini': GeminiClient,
-    'modelscope': ModelscopeClient,
-    'shatangyun': ShatangyunClient,
-    'mengyuai': MengyuaiClient,
-    'zai': ZaiClient,
+    "openai": OpenAIClient,
+    "openai-chat": OpenAIChatClient,
+    "doubao": DoubaoClient,
+    "gemini": GeminiClient,
+    "modelscope": ModelscopeClient,
+    "shatangyun": ShatangyunClient,
+    "mengyuai": MengyuaiClient,
+    "zai": ZaiClient,
 }
 
 
@@ -60,6 +60,7 @@ def get_client_class(api_format: str):
         客户端类，如果不存在则返回OpenAIClient作为默认
     """
     from .base_client import logger
+
     client_class = CLIENT_MAPPING.get(api_format.lower(), OpenAIClient)
     logger.debug(f"[ApiClient] format='{api_format}' -> client={client_class.__name__}")
     return client_class
@@ -90,7 +91,7 @@ class ApiClient:
         size: str,
         strength: Optional[float] = None,
         input_image_base64: Optional[str] = None,
-        max_retries: int = 2
+        max_retries: int = 2,
     ):
         """生成图片，自动选择正确的API客户端
 
@@ -113,5 +114,5 @@ class ApiClient:
             size=size,
             strength=strength,
             input_image_base64=input_image_base64,
-            max_retries=max_retries
+            max_retries=max_retries,
         )

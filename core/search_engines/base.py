@@ -34,6 +34,7 @@ USER_AGENTS = [
 @dataclass
 class SearchResult:
     """搜索结果数据类"""
+
     title: str
     url: str
     snippet: str = ""
@@ -64,29 +65,26 @@ class BaseSearchEngine:
         if aiohttp is None:
             logger.error("aiohttp 未安装，无法执行HTTP请求")
             return ""
-            
+
         headers = self.headers.copy()
         headers["Referer"] = url
         headers["User-Agent"] = random.choice(USER_AGENTS)
-        
+
         try:
             async with aiohttp.ClientSession() as session:
                 if data:
                     async with session.post(
-                        url, 
-                        headers=headers, 
-                        data=data, 
-                        timeout=aiohttp.ClientTimeout(total=self.timeout), 
-                        proxy=self.proxy
+                        url,
+                        headers=headers,
+                        data=data,
+                        timeout=aiohttp.ClientTimeout(total=self.timeout),
+                        proxy=self.proxy,
                     ) as resp:
                         resp.raise_for_status()
                         return await resp.text()
                 else:
                     async with session.get(
-                        url, 
-                        headers=headers, 
-                        timeout=aiohttp.ClientTimeout(total=self.timeout), 
-                        proxy=self.proxy
+                        url, headers=headers, timeout=aiohttp.ClientTimeout(total=self.timeout), proxy=self.proxy
                     ) as resp:
                         resp.raise_for_status()
                         return await resp.text()
@@ -105,14 +103,14 @@ class BaseSearchEngine:
         """
         if not text:
             return ""
-        
+
         # 常规文本清理
         text = text.strip().replace("\n", " ").replace("\r", " ")
-        
+
         # 合并多个空格为单个空格
         while "  " in text:
             text = text.replace("  ", " ")
-        
+
         return text
 
     async def search_images(self, query: str, num_results: int = 5) -> List[SearchResult]:

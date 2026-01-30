@@ -2,6 +2,7 @@
 
 支持：OpenAI官方、硅基流动、NewAPI、火山方舟等兼容OpenAI格式的服务
 """
+
 import json
 import urllib.request
 import traceback
@@ -21,7 +22,7 @@ class OpenAIClient(BaseApiClient):
         model_config: Dict[str, Any],
         size: str,
         strength: Optional[float] = None,
-        input_image_base64: Optional[str] = None
+        input_image_base64: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """发送OpenAI格式的HTTP请求生成图片"""
         base_url = model_config.get("base_url", "")
@@ -136,7 +137,9 @@ class OpenAIClient(BaseApiClient):
                     safe_headers["Authorization"] = "***"
             logger.info(f"{self.log_prefix} (OpenAI) 详细调试 - 请求端点: {endpoint}")
             logger.info(f"{self.log_prefix} (OpenAI) 详细调试 - 请求头: {safe_headers}")
-            logger.info(f"{self.log_prefix} (OpenAI) 详细调试 - 请求体: {json.dumps(safe_payload, ensure_ascii=False, indent=2)}")
+            logger.info(
+                f"{self.log_prefix} (OpenAI) 详细调试 - 请求体: {json.dumps(safe_payload, ensure_ascii=False, indent=2)}"
+            )
 
         logger.info(f"{self.log_prefix} (OpenAI) 发起图片请求: {model}, Prompt: {prompt_add[:30]}... To: {endpoint}")
 
@@ -148,13 +151,12 @@ class OpenAIClient(BaseApiClient):
         try:
             # 如果启用了代理，设置代理处理器
             if proxy_config:
-                proxy_handler = urllib.request.ProxyHandler({
-                    'http': proxy_config['http'],
-                    'https': proxy_config['https']
-                })
+                proxy_handler = urllib.request.ProxyHandler(
+                    {"http": proxy_config["http"], "https": proxy_config["https"]}
+                )
                 opener = urllib.request.build_opener(proxy_handler)
                 urllib.request.install_opener(opener)
-                timeout = proxy_config.get('timeout', 600)
+                timeout = proxy_config.get("timeout", 600)
             else:
                 timeout = 600
 
@@ -204,10 +206,14 @@ class OpenAIClient(BaseApiClient):
                         logger.info(f"{self.log_prefix} (OpenAI) 图片生成成功，URL: {image_url[:70]}...")
                         return True, image_url
                     else:
-                        logger.error(f"{self.log_prefix} (OpenAI) API成功但无图片URL. 响应预览: {cleaned_response[:300]}...")
+                        logger.error(
+                            f"{self.log_prefix} (OpenAI) API成功但无图片URL. 响应预览: {cleaned_response[:300]}..."
+                        )
                         return False, "图片生成API响应成功但未找到图片URL"
                 else:
-                    logger.error(f"{self.log_prefix} (OpenAI) API请求失败. 状态: {response.status}. 正文: {cleaned_response[:300]}...")
+                    logger.error(
+                        f"{self.log_prefix} (OpenAI) API请求失败. 状态: {response.status}. 正文: {cleaned_response[:300]}..."
+                    )
                     return False, f"图片API请求失败(状态码 {response.status})"
         except Exception as e:
             logger.error(f"{self.log_prefix} (OpenAI) 图片生成时意外错误: {e!r}", exc_info=True)
@@ -216,16 +222,17 @@ class OpenAIClient(BaseApiClient):
 
     def _clean_response_body(self, response_body: str) -> str:
         """清理响应体中的base64图片数据，避免日志打印完整的base64字符串
-        
+
         Args:
             response_body: 原始响应体字符串
-            
+
         Returns:
             清理后的响应体，base64数据被替换为占位符
         """
         try:
             # 如果响应体是JSON，尝试解析并替换b64_json字段
             import json
+
             data = json.loads(response_body)
             if isinstance(data, dict):
                 # 检查是否有b64_json字段
@@ -235,7 +242,7 @@ class OpenAIClient(BaseApiClient):
                             item["b64_json"] = "[BASE64_DATA...]"
                 # 检查是否有images字段（魔搭格式）
                 if "images" in data and isinstance(data["images"], list) and len(data["images"]) > 0:
-                    for i, img in enumerate(data["images"]):
+                    for _i, img in enumerate(data["images"]):
                         if isinstance(img, dict) and "url" in img:
                             # URL可以保留
                             pass
@@ -244,11 +251,13 @@ class OpenAIClient(BaseApiClient):
         except (json.JSONDecodeError, TypeError):
             # 如果不是JSON，检查是否是纯base64图片数据
             # 常见的base64图片前缀
-            base64_prefixes = ['/9j/', 'iVBORw', 'UklGR', 'R0lGOD']
+            base64_prefixes = ["/9j/", "iVBORw", "UklGR", "R0lGOD"]
             if any(response_body.startswith(prefix) for prefix in base64_prefixes):
                 return "[BASE64_IMAGE_DATA...]"
             # 如果包含很长的base64字符串（长度>500），截断
-            if len(response_body) > 500 and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in response_body[:100]):
+            if len(response_body) > 500 and all(
+                c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=" for c in response_body[:100]
+            ):
                 return f"[BASE64_DATA_LEN:{len(response_body)}]"
         # 其他情况返回原样
         return response_body

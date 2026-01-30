@@ -1,4 +1,4 @@
-from typing import List, Tuple, Type, Dict, Any, Optional
+from typing import List, Tuple, Type, Dict, Any
 import os
 
 from src.plugin_system.base.base_plugin import BasePlugin
@@ -14,12 +14,12 @@ from src.plugin_system.base.config_types import (
 from .core.pic_action import CustomPicAction
 from .core.pic_command import PicGenerationCommand, PicConfigCommand, PicStyleCommand
 from .core.config_manager import EnhancedConfigManager
-from .core.auto_selfie_task import AutoSelfieTask
 
 
 # ================================================================================
 # 模型配置工厂函数 - 避免重复定义相同的字段结构
 # ================================================================================
+
 
 def _create_model_config_schema(
     name: str = "Model",
@@ -34,7 +34,7 @@ def _create_model_config_schema(
 ) -> Dict[str, ConfigField]:
     """
     创建模型配置 Schema 的工厂函数
-    
+
     Args:
         name: 模型显示名称
         model: 模型名称
@@ -45,7 +45,7 @@ def _create_model_config_schema(
         guidance_scale: 指导强度
         custom_prompt_add: 正面提示词增强
         negative_prompt_add: 负面提示词
-    
+
     Returns:
         模型配置 Schema 字典
     """
@@ -54,14 +54,14 @@ def _create_model_config_schema(
             type=str,
             default=name,
             description="模型显示名称，在模型列表中展示，版本更新后请手动从 old 目录恢复配置",
-            order=1
+            order=1,
         ),
         "base_url": ConfigField(
             type=str,
             default=base_url,
             description="API服务地址。示例: OpenAI=https://api.openai.com/v1, 硅基流动=https://api.siliconflow.cn/v1, 豆包=https://ark.cn-beijing.volces.com/api/v3, 魔搭=https://api-inference.modelscope.cn/v1, Gemini=https://generativelanguage.googleapis.com",
             placeholder="https://api.example.com/v1",
-            order=2
+            order=2,
         ),
         "api_key": ConfigField(
             type=str,
@@ -69,42 +69,37 @@ def _create_model_config_schema(
             description="API密钥。OpenAI/modelscope格式需'Bearer '前缀，豆包/Gemini格式无需前缀",
             input_type="password",
             placeholder="Bearer sk-xxx 或 sk-xxx",
-            order=3
+            order=3,
         ),
         "format": ConfigField(
             type=str,
             default=format_type,
             description="API格式。openai=通用格式，openai-chat=Chat接口生图，doubao=豆包，gemini=Gemini，modelscope=魔搭，shatangyun=砂糖云，mengyuai=梦羽AI，zai=Zai",
             choices=["openai", "openai-chat", "gemini", "doubao", "modelscope", "shatangyun", "mengyuai", "zai"],
-            order=4
+            order=4,
         ),
         "model": ConfigField(
             type=str,
             default=model,
             description="模型名称。梦羽AI格式填写模型索引数字（如0、1、2）",
             placeholder="model-name",
-            order=5
+            order=5,
         ),
         "fixed_size_enabled": ConfigField(
             type=bool,
             default=False,
             description="是否固定图片尺寸。开启后强制使用default_size，关闭则麦麦选择",
-            order=6
+            order=6,
         ),
         "default_size": ConfigField(
             type=str,
             default=default_size,
             description="默认图片尺寸。格式如 1024x1024 或 16:9",
             placeholder="1024x1024",
-            order=7
+            order=7,
         ),
         "seed": ConfigField(
-            type=int,
-            default=-1,
-            description="随机种子，固定值可确保结果可复现",
-            min=-1,
-            max=2147483647,
-            order=8
+            type=int, default=-1, description="随机种子，固定值可确保结果可复现", min=-1, max=2147483647, order=8
         ),
         "guidance_scale": ConfigField(
             type=float,
@@ -113,29 +108,19 @@ def _create_model_config_schema(
             min=0.0,
             max=20.0,
             step=0.5,
-            order=9
+            order=9,
         ),
         "num_inference_steps": ConfigField(
-            type=int,
-            default=30,
-            description="推理步数，影响质量和速度。推荐20-50",
-            min=1,
-            max=150,
-            order=10
+            type=int, default=30, description="推理步数，影响质量和速度。推荐20-50", min=1, max=150, order=10
         ),
-        "watermark": ConfigField(
-            type=bool,
-            default=False,
-            description="是否添加水印",
-            order=11
-        ),
+        "watermark": ConfigField(type=bool, default=False, description="是否添加水印", order=11),
         "custom_prompt_add": ConfigField(
             type=str,
             default=custom_prompt_add,
             description="正面提示词增强，自动添加到用户描述后",
             input_type="textarea",
             rows=2,
-            order=12
+            order=12,
         ),
         "negative_prompt_add": ConfigField(
             type=str,
@@ -143,27 +128,12 @@ def _create_model_config_schema(
             description="负面提示词，避免不良内容",
             input_type="textarea",
             rows=2,
-            order=13
+            order=13,
         ),
-        "artist": ConfigField(
-            type=str,
-            default="",
-            description="艺术家风格标签（砂糖云专用）",
-            order=14
-        ),
-        "support_img2img": ConfigField(
-            type=bool,
-            default=True,
-            description="该模型是否支持图生图功能",
-            order=15
-        ),
+        "artist": ConfigField(type=str, default="", description="艺术家风格标签（砂糖云专用）", order=14),
+        "support_img2img": ConfigField(type=bool, default=True, description="该模型是否支持图生图功能", order=15),
         "auto_recall_delay": ConfigField(
-            type=int,
-            default=0,
-            description="自动撤回延时（秒）。0表示不撤回",
-            min=0,
-            max=120,
-            order=16
+            type=int, default=0, description="自动撤回延时（秒）。0表示不撤回", min=0, max=120, order=16
         ),
     }
 
@@ -229,7 +199,7 @@ def _generate_model_schemas() -> Dict[str, Dict[str, ConfigField]]:
             custom_prompt_add=preset.get("custom_prompt_add", ""),
             negative_prompt_add=preset.get(
                 "negative_prompt_add",
-                "low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs"
+                "low quality, worst quality, bad quality, lowres, blurry, text, watermark, signature, extra arms, extra legs, extra hands, extra fingers, extra toes, missing fingers, bad anatomy, bad hands, bad proportions, extra thighs, extra calves, leg duplication, leg artifacts, logo, bubble, extra limbs",
             ),
         )
     return schemas
@@ -241,7 +211,7 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name: str = "custom_pic_plugin"  # type: ignore[assignment]
-    plugin_version: str = "3.5.0"
+    plugin_version: str = "3.5.2-beta.1"
     plugin_author: str = "Ptrel，Rabbit，saberlights Kiuon，nguspring"
     enable_plugin: bool = True  # type: ignore[assignment]
     dependencies: List[str] = []  # type: ignore[assignment]
@@ -250,82 +220,46 @@ class CustomPicPlugin(BasePlugin):
 
     # 配置节元数据
     config_section_descriptions = {
-        "plugin": ConfigSection(
-            title="插件启用配置",
-            icon="info",
-            order=1
-        ),
-        "generation": ConfigSection(
-            title="图片生成默认配置",
-            icon="image",
-            order=2
-        ),
-        "components": ConfigSection(
-            title="组件启用配置",
-            icon="puzzle-piece",
-            order=3
-        ),
-        "proxy": ConfigSection(
-            title="代理设置",
-            icon="globe",
-            order=4
-        ),
-        "cache": ConfigSection(
-            title="结果缓存配置",
-            icon="database",
-            order=5
-        ),
-        "selfie": ConfigSection(
-            title="自拍模式配置",
-            icon="camera",
-            order=6
-        ),
-        "auto_recall": ConfigSection(
-            title="自动撤回配置",
-            icon="trash",
-            order=7
-        ),
+        "plugin": ConfigSection(title="插件启用配置", icon="info", order=1),
+        "generation": ConfigSection(title="图片生成默认配置", icon="image", order=2),
+        "components": ConfigSection(title="组件启用配置", icon="puzzle-piece", order=3),
+        "proxy": ConfigSection(title="代理设置", icon="globe", order=4),
+        "cache": ConfigSection(title="结果缓存配置", icon="database", order=5),
+        "selfie": ConfigSection(title="自拍模式配置", icon="camera", order=6),
+        "auto_recall": ConfigSection(title="自动撤回配置", icon="trash", order=7),
         "auto_selfie": ConfigSection(
             title="定时自拍配置",
             description="Bot会根据LLM智能日程动态发送自拍。v3.5.0起统一为smart模式，旧模式(interval/times/hybrid)自动升级",
             icon="clock",
-            order=7
+            order=7,
         ),
         "prompt_optimizer": ConfigSection(
             title="提示词优化器",
             description="使用 MaiBot 主 LLM 将用户描述优化为专业绘画提示词",
             icon="wand-2",
-            order=8
+            order=8,
         ),
         "search_reference": ConfigSection(
             title="智能参考搜索配置",
             description="自动搜索角色图片并提取特征，解决模型不认识角色的问题",
             icon="search",
-            order=9
+            order=9,
         ),
         "styles": ConfigSection(
             title="风格定义",
-            description="预设风格的提示词。添加更多风格请直接编辑 config.toml，格式：风格英文名 = \"提示词\"",
+            description='预设风格的提示词。添加更多风格请直接编辑 config.toml，格式：风格英文名 = "提示词"',
             icon="palette",
-            order=10
+            order=10,
         ),
         "style_aliases": ConfigSection(
-            title="风格别名",
-            description="风格的中文别名映射。添加更多别名请直接编辑 config.toml",
-            icon="tag",
-            order=11
+            title="风格别名", description="风格的中文别名映射。添加更多别名请直接编辑 config.toml", icon="tag", order=11
         ),
-        "logging": ConfigSection(
-            title="日志配置",
-            icon="file-text",
-            collapsed=True,
-            order=12
-        ),
+        "logging": ConfigSection(title="日志配置", icon="file-text", collapsed=True, order=12),
         "models": ConfigSection(
             title="多模型配置",
             description="添加更多模型请直接编辑 config.toml，复制 [models.model1] 整节并改名为 model2、model3 等",
             icon="cpu",
-            order=13
+            order=13,
         ),
         "models.model1": ConfigSection(title="模型1配置", icon="box", order=14),
         "models.model2": ConfigSection(title="模型2配置", icon="box", order=15),
@@ -340,44 +274,32 @@ class CustomPicPlugin(BasePlugin):
     config_layout = ConfigLayout(
         type="tabs",
         tabs=[
-            ConfigTab(
-                id="basic",
-                title="基础设置",
-                sections=["plugin", "generation", "components"],
-                icon="settings"
-            ),
-            ConfigTab(
-                id="network",
-                title="网络配置",
-                sections=["proxy", "cache"],
-                icon="wifi"
-            ),
+            ConfigTab(id="basic", title="基础设置", sections=["plugin", "generation", "components"], icon="settings"),
+            ConfigTab(id="network", title="网络配置", sections=["proxy", "cache"], icon="wifi"),
             ConfigTab(
                 id="features",
                 title="功能配置",
                 sections=["selfie", "auto_recall", "auto_selfie", "prompt_optimizer", "search_reference"],
-                icon="zap"
+                icon="zap",
             ),
-            ConfigTab(
-                id="styles",
-                title="风格管理",
-                sections=["styles", "style_aliases"],
-                icon="palette"
-            ),
+            ConfigTab(id="styles", title="风格管理", sections=["styles", "style_aliases"], icon="palette"),
             ConfigTab(
                 id="models",
                 title="模型管理",
-                sections=["models", "models.model1", "models.model2", "models.model3", "models.model4", "models.model5", "models.model6", "models.model7"],
-                icon="cpu"
+                sections=[
+                    "models",
+                    "models.model1",
+                    "models.model2",
+                    "models.model3",
+                    "models.model4",
+                    "models.model5",
+                    "models.model6",
+                    "models.model7",
+                ],
+                icon="cpu",
             ),
-            ConfigTab(
-                id="advanced",
-                title="高级",
-                sections=["logging"],
-                icon="terminal",
-                badge="Dev"
-            ),
-        ]
+            ConfigTab(id="advanced", title="高级", sections=["logging"], icon="terminal", badge="Dev"),
+        ],
     )
 
     # 配置Schema
@@ -389,21 +311,14 @@ class CustomPicPlugin(BasePlugin):
                 description="智能多模型图片生成插件，支持文生图/图生图自动识别",
                 required=True,
                 disabled=True,
-                order=1
+                order=1,
             ),
             "config_version": ConfigField(
-                type=str,
-                default="3.5.0-beta.14",
-                description="插件配置版本号",
-                disabled=True,
-                order=2
+                type=str, default="3.5.2-beta.1", description="插件配置版本号", disabled=True, order=2
             ),
             "enabled": ConfigField(
-                type=bool,
-                default=False,
-                description="是否启用插件，开启后可使用画图和风格转换功能",
-                order=3
-            )
+                type=bool, default=False, description="是否启用插件，开启后可使用画图和风格转换功能", order=3
+            ),
         },
         "generation": {
             "default_model": ConfigField(
@@ -411,15 +326,12 @@ class CustomPicPlugin(BasePlugin):
                 default="model1",
                 description="默认使用的模型ID，用于智能图片生成。支持文生图和图生图自动识别",
                 placeholder="model1",
-                order=1
+                order=1,
             ),
         },
         "cache": {
             "enabled": ConfigField(
-                type=bool,
-                default=False,
-                description="是否启用结果缓存，相同参数的请求会复用之前的结果",
-                order=1
+                type=bool, default=False, description="是否启用结果缓存，相同参数的请求会复用之前的结果", order=1
             ),
             "max_size": ConfigField(
                 type=int,
@@ -429,59 +341,44 @@ class CustomPicPlugin(BasePlugin):
                 max=100,
                 depends_on="cache.enabled",
                 depends_value=True,
-                order=2
+                order=2,
             ),
         },
         "components": {
             "enable_unified_generation": ConfigField(
-                type=bool,
-                default=True,
-                description="是否启用智能图片生成Action，支持文生图和图生图自动识别",
-                order=1
+                type=bool, default=True, description="是否启用智能图片生成Action，支持文生图和图生图自动识别", order=1
             ),
             "enable_pic_command": ConfigField(
-                type=bool,
-                default=True,
-                description="是否启用风格化图生图Command功能，支持/dr <风格>命令",
-                order=2
+                type=bool, default=True, description="是否启用风格化图生图Command功能，支持/dr <风格>命令", order=2
             ),
             "enable_pic_config": ConfigField(
-                type=bool,
-                default=True,
-                description="是否启用模型配置管理命令，支持/dr list、/dr set等",
-                order=3
+                type=bool, default=True, description="是否启用模型配置管理命令，支持/dr list、/dr set等", order=3
             ),
             "enable_pic_style": ConfigField(
-                type=bool,
-                default=True,
-                description="是否启用风格管理命令，支持/dr styles、/dr style等",
-                order=4
+                type=bool, default=True, description="是否启用风格管理命令，支持/dr styles、/dr style等", order=4
             ),
             "pic_command_model": ConfigField(
                 type=str,
                 default="model1",
                 description="Command组件使用的模型ID，可通过/dr set命令动态切换",
                 placeholder="model1",
-                order=5
+                order=5,
             ),
             "enable_debug_info": ConfigField(
-                type=bool,
-                default=False,
-                description="是否启用调试信息显示，关闭后仅显示图片结果和错误信息",
-                order=6
+                type=bool, default=False, description="是否启用调试信息显示，关闭后仅显示图片结果和错误信息", order=6
             ),
             "enable_verbose_debug": ConfigField(
                 type=bool,
                 default=False,
                 description="是否启用详细调试信息，启用后会发送完整的调试信息以及打印完整的 POST 报文",
-                order=7
+                order=7,
             ),
             "admin_users": ConfigField(
                 type=list,
                 default=[],
                 description="有权限使用配置管理命令的管理员用户列表，请填写字符串形式的用户ID",
-                placeholder="[\"用户ID1\", \"用户ID2\"]",
-                order=8
+                placeholder='["用户ID1", "用户ID2"]',
+                order=8,
             ),
             "max_retries": ConfigField(
                 type=int,
@@ -489,8 +386,8 @@ class CustomPicPlugin(BasePlugin):
                 description="API调用失败时的重试次数，建议2-5次。设置为0表示不重试",
                 min=0,
                 max=10,
-                order=9
-            )
+                order=9,
+            ),
         },
         "logging": {
             "level": ConfigField(
@@ -498,22 +395,15 @@ class CustomPicPlugin(BasePlugin):
                 default="INFO",
                 description="日志记录级别，DEBUG显示详细信息",
                 choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-                order=1
+                order=1,
             ),
             "prefix": ConfigField(
-                type=str,
-                default="[unified_pic_Plugin]",
-                description="日志前缀标识",
-                placeholder="[插件名]",
-                order=2
-            )
+                type=str, default="[unified_pic_Plugin]", description="日志前缀标识", placeholder="[插件名]", order=2
+            ),
         },
         "proxy": {
             "enabled": ConfigField(
-                type=bool,
-                default=False,
-                description="是否启用代理。开启后所有API请求将通过代理服务器",
-                order=1
+                type=bool, default=False, description="是否启用代理。开启后所有API请求将通过代理服务器", order=1
             ),
             "url": ConfigField(
                 type=str,
@@ -522,7 +412,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="http://127.0.0.1:7890",
                 depends_on="proxy.enabled",
                 depends_value=True,
-                order=2
+                order=2,
             ),
             "timeout": ConfigField(
                 type=int,
@@ -532,16 +422,16 @@ class CustomPicPlugin(BasePlugin):
                 max=300,
                 depends_on="proxy.enabled",
                 depends_value=True,
-                order=3
-            )
+                order=3,
+            ),
         },
         "styles": {
             "hint": ConfigField(
                 type=str,
-                default="添加更多风格：编辑 config.toml，在 [styles] 节下添加 风格英文名 = \"提示词\"",
+                default='添加更多风格：编辑 config.toml，在 [styles] 节下添加 风格英文名 = "提示词"',
                 description="配置说明",
                 disabled=True,
-                order=0
+                order=0,
             ),
             "cartoon": ConfigField(
                 type=str,
@@ -549,7 +439,7 @@ class CustomPicPlugin(BasePlugin):
                 description="卡通风格提示词",
                 input_type="textarea",
                 rows=3,
-                order=1
+                order=1,
             ),
             "reality": ConfigField(
                 type=str,
@@ -557,39 +447,34 @@ class CustomPicPlugin(BasePlugin):
                 description="写实风格提示词",
                 input_type="textarea",
                 rows=3,
-                order=2
-            )
+                order=2,
+            ),
         },
         "style_aliases": {
             "hint": ConfigField(
                 type=str,
-                default="添加更多别名：编辑 config.toml，在 [style_aliases] 节下添加 风格英文名 = \"中文别名\"",
+                default='添加更多别名：编辑 config.toml，在 [style_aliases] 节下添加 风格英文名 = "中文别名"',
                 description="配置说明",
                 disabled=True,
-                order=0
+                order=0,
             ),
             "cartoon": ConfigField(
                 type=str,
                 default="卡通",
                 description="cartoon 风格的中文别名，支持多别名用逗号分隔",
                 placeholder="卡通,动漫",
-                order=1
+                order=1,
             ),
             "reality": ConfigField(
                 type=str,
                 default="现实, 真实",
                 description="reality 风格的中文别名，支持多别名用逗号分隔",
                 placeholder="现实, 真实",
-                order=2
-            )
+                order=2,
+            ),
         },
         "selfie": {
-            "enabled": ConfigField(
-                type=bool,
-                default=True,
-                description="是否启用自拍模式功能",
-                order=1
-            ),
+            "enabled": ConfigField(type=bool, default=True, description="是否启用自拍模式功能", order=1),
             "reference_image_path": ConfigField(
                 type=str,
                 default="",
@@ -597,7 +482,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="images/reference.png",
                 depends_on="selfie.enabled",
                 depends_value=True,
-                order=2
+                order=2,
             ),
             "prompt_prefix": ConfigField(
                 type=str,
@@ -608,7 +493,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="blue hair, red eyes, school uniform, 1girl",
                 depends_on="selfie.enabled",
                 depends_value=True,
-                order=3
+                order=3,
             ),
             "negative_prompt_standard": ConfigField(
                 type=str,
@@ -619,7 +504,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="phone, smartphone, camera...",
                 depends_on="selfie.enabled",
                 depends_value=True,
-                order=4
+                order=4,
             ),
             "negative_prompt_mirror": ConfigField(
                 type=str,
@@ -630,7 +515,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="selfie stick",
                 depends_on="selfie.enabled",
                 depends_value=True,
-                order=5
+                order=5,
             ),
             "negative_prompt": ConfigField(
                 type=str,
@@ -641,7 +526,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="",
                 depends_on="selfie.enabled",
                 depends_value=True,
-                order=6
+                order=6,
             ),
             "scene_mirror": ConfigField(
                 type=str,
@@ -651,7 +536,7 @@ class CustomPicPlugin(BasePlugin):
                 rows=2,
                 depends_on="selfie.enabled",
                 depends_value=True,
-                order=7
+                order=7,
             ),
             "scene_standard": ConfigField(
                 type=str,
@@ -661,15 +546,15 @@ class CustomPicPlugin(BasePlugin):
                 rows=2,
                 depends_on="selfie.enabled",
                 depends_value=True,
-                order=8
-            )
+                order=8,
+            ),
         },
         "auto_recall": {
             "enabled": ConfigField(
                 type=bool,
                 default=False,
                 description="是否启用自动撤回功能（总开关）。关闭后所有模型的撤回都不生效",
-                order=1
+                order=1,
             )
         },
         # ================================================================================
@@ -681,18 +566,17 @@ class CustomPicPlugin(BasePlugin):
                 type=bool,
                 default=False,
                 description="【总开关】是否启用定时自拍功能。开启后麦麦会按照schedule_times设定的时间点自动发送自拍。需要先配置好chat_id_list指定发送目标",
-                order=1
+                order=1,
             ),
-            
             # ==================== 2. 发送时间设置 ====================
             "schedule_times": ConfigField(
                 type=list,
                 default=["07:30", "09:00", "10:30", "12:00", "14:00", "16:00", "18:00", "20:00", "22:00"],
-                description="【核心配置】每天发送自拍的时间点列表。格式：24小时制HH:MM。LLM会根据每个时间点自动生成对应的场景（如08:00生成起床场景）。建议配置5-9个时间点覆盖一天的活动。示例：[\"08:00\", \"12:00\", \"18:00\", \"21:00\"]",
+                description='【核心配置】每天发送自拍的时间点列表。格式：24小时制HH:MM。LLM会根据每个时间点自动生成对应的场景（如08:00生成起床场景）。建议配置5-9个时间点覆盖一天的活动。示例：["08:00", "12:00", "18:00", "21:00"]',
                 placeholder='["08:00", "12:00", "18:00", "21:00"]',
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=2
+                order=2,
             ),
             "sleep_mode_enabled": ConfigField(
                 type=bool,
@@ -700,7 +584,7 @@ class CustomPicPlugin(BasePlugin):
                 description="是否启用睡眠模式。开启后在sleep_start_time到sleep_end_time期间不会发送自拍，让麦麦也有休息时间",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=3
+                order=3,
             ),
             "sleep_start_time": ConfigField(
                 type=str,
@@ -709,7 +593,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="23:00",
                 depends_on="auto_selfie.sleep_mode_enabled",
                 depends_value=True,
-                order=4
+                order=4,
             ),
             "sleep_end_time": ConfigField(
                 type=str,
@@ -718,9 +602,8 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="07:00",
                 depends_on="auto_selfie.sleep_mode_enabled",
                 depends_value=True,
-                order=5
+                order=5,
             ),
-            
             # ==================== 3. 发送目标设置 ====================
             "list_mode": ConfigField(
                 type=str,
@@ -729,18 +612,17 @@ class CustomPicPlugin(BasePlugin):
                 choices=["whitelist", "blacklist"],
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=6
+                order=6,
             ),
             "chat_id_list": ConfigField(
                 type=list,
                 default=[],
-                description="【核心配置】自拍发送目标列表。⚠️格式说明：在config.toml文件中填写时，每个ID必须加双引号！多个ID用逗号隔开。群聊格式：\"qq:群号:group\"，私聊格式：\"qq:用户QQ号:private\"。示例：[\"qq:123456789:group\", \"qq:987654321:private\"]。通过WebUI修改时无需手动加引号",
+                description='【核心配置】自拍发送目标列表。⚠️格式说明：在config.toml文件中填写时，每个ID必须加双引号！多个ID用逗号隔开。群聊格式："qq:群号:group"，私聊格式："qq:用户QQ号:private"。示例：["qq:123456789:group", "qq:987654321:private"]。通过WebUI修改时无需手动加引号',
                 placeholder='["qq:123456789:group", "qq:987654321:private"]',
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=7
+                order=7,
             ),
-            
             # ==================== 4. 日程生成设置 ====================
             "schedule_min_entries": ConfigField(
                 type=int,
@@ -750,7 +632,7 @@ class CustomPicPlugin(BasePlugin):
                 max=20,
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=8
+                order=8,
             ),
             "schedule_max_entries": ConfigField(
                 type=int,
@@ -760,7 +642,7 @@ class CustomPicPlugin(BasePlugin):
                 max=20,
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=9
+                order=9,
             ),
             "schedule_generator_model": ConfigField(
                 type=str,
@@ -769,7 +651,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="留空使用默认",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=10
+                order=10,
             ),
             "schedule_persona_enabled": ConfigField(
                 type=bool,
@@ -777,7 +659,7 @@ class CustomPicPlugin(BasePlugin):
                 description="是否启用日程人设注入。开启后LLM会根据schedule_persona_text中描述的角色身份来生成日程，让活动安排更符合人设",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=11
+                order=11,
             ),
             "schedule_persona_text": ConfigField(
                 type=str,
@@ -789,7 +671,7 @@ class CustomPicPlugin(BasePlugin):
                 hint="描述角色的身份背景，影响日程中的活动场景",
                 depends_on="auto_selfie.schedule_persona_enabled",
                 depends_value=True,
-                order=12
+                order=12,
             ),
             "schedule_lifestyle": ConfigField(
                 type=str,
@@ -801,17 +683,27 @@ class CustomPicPlugin(BasePlugin):
                 hint="描述角色的生活习惯，让日程更符合人设",
                 depends_on="auto_selfie.schedule_persona_enabled",
                 depends_value=True,
-                order=13
+                order=13,
             ),
-            
-            # ==================== 5. 间隔补充发送（v3.5.0-beta.14：暂时禁用） ====================
+            # ==================== 5. 日程文件保留窗口 ====================
+            "schedule_retention_days": ConfigField(
+                type=int,
+                default=7,
+                description="日程文件保留天数（用于跨天去重与调试）。会保留最近 N 天的 daily_schedule_YYYY-MM-DD.json，早于该窗口的文件会自动清理",
+                min=0,
+                max=60,
+                depends_on="auto_selfie.enabled",
+                depends_value=True,
+                order=14,
+            ),
+            # ==================== 6. 间隔补充发送（v3.5.0-beta.14：暂时禁用） ====================
             "enable_interval_supplement": ConfigField(
                 type=bool,
                 default=False,
-                description="【暂时禁用】是否启用间隔补充发送。开启后会在schedule_times时间点之外随机触发自拍，让发送时间更自然。⚠️v3.5.0-beta.14临时禁用此功能以修复\"就近条目\"策略导致的重复场景问题（如多次显示\"起床\"场景）。建议保持关闭",
+                description='【暂时禁用】是否启用间隔补充发送。开启后会在schedule_times时间点之外随机触发自拍，让发送时间更自然。⚠️v3.5.0-beta.14临时禁用此功能以修复"就近条目"策略导致的重复场景问题（如多次显示"起床"场景）。建议保持关闭',
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=14
+                order=15,
             ),
             "interval_minutes": ConfigField(
                 type=int,
@@ -821,7 +713,7 @@ class CustomPicPlugin(BasePlugin):
                 max=480,
                 depends_on="auto_selfie.enable_interval_supplement",
                 depends_value=True,
-                order=15
+                order=16,
             ),
             "interval_probability": ConfigField(
                 type=float,
@@ -832,10 +724,9 @@ class CustomPicPlugin(BasePlugin):
                 step=0.1,
                 depends_on="auto_selfie.enable_interval_supplement",
                 depends_value=True,
-                order=16
+                order=17,
             ),
-            
-            # ==================== 6. 图片生成设置 ====================
+            # ==================== 7. 图片生成设置 ====================
             "model_id": ConfigField(
                 type=str,
                 default="model1",
@@ -843,7 +734,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="model1",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=17
+                order=18,
             ),
             "selfie_style": ConfigField(
                 type=str,
@@ -852,17 +743,16 @@ class CustomPicPlugin(BasePlugin):
                 choices=["standard", "mirror"],
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=18
+                order=19,
             ),
-            
-            # ==================== 7. 配文设置 ====================
+            # ==================== 8. 配文设置 ====================
             "enable_narrative": ConfigField(
                 type=bool,
                 default=True,
-                description="是否启用叙事系统。开启后配文会根据当天日程生成连贯的\"故事线\"，让一天的自拍像是在记录生活",
+                description='是否启用叙事系统。开启后配文会根据当天日程生成连贯的"故事线"，让一天的自拍像是在记录生活',
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=19
+                order=20,
             ),
             "use_replyer_for_ask": ConfigField(
                 type=bool,
@@ -870,7 +760,7 @@ class CustomPicPlugin(BasePlugin):
                 description="是否使用LLM动态生成配文。开启后会调用LLM根据场景生成自然的配文；关闭则使用ask_message中的固定文案或随机模板",
                 depends_on="auto_selfie.enabled",
                 depends_value=True,
-                order=20
+                order=21,
             ),
             "ask_message": ConfigField(
                 type=str,
@@ -879,7 +769,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="你看这张照片怎么样？",
                 depends_on="auto_selfie.use_replyer_for_ask",
                 depends_value=False,
-                order=21
+                order=22,
             ),
             "caption_model_id": ConfigField(
                 type=str,
@@ -888,7 +778,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="留空使用默认",
                 depends_on="auto_selfie.enable_narrative",
                 depends_value=True,
-                order=22
+                order=23,
             ),
             "caption_types": ConfigField(
                 type=list,
@@ -897,7 +787,7 @@ class CustomPicPlugin(BasePlugin):
                 placeholder='["narrative", "ask", "share", "monologue", "none"]',
                 depends_on="auto_selfie.enable_narrative",
                 depends_value=True,
-                order=23
+                order=24,
             ),
             "caption_weights": ConfigField(
                 type=list,
@@ -906,17 +796,33 @@ class CustomPicPlugin(BasePlugin):
                 placeholder="[0.35, 0.25, 0.25, 0.10, 0.05]",
                 depends_on="auto_selfie.enable_narrative",
                 depends_value=True,
-                order=24
+                order=25,
             ),
-            
-            # ==================== 8. 配文人设注入 ====================
+            # ==================== 9. Phase 4：配文贴图（视觉摘要） ====================
+            "enable_visual_summary": ConfigField(
+                type=bool,
+                default=True,
+                description="是否启用配文贴图（视觉摘要）。开启后会在图片生成后调用MaiBot的VLM模型生成1-2句图片内容摘要，并注入到配文生成提示词中，以提高配文与图片的一致性",
+                depends_on="auto_selfie.enable_narrative",
+                depends_value=True,
+                order=26,
+            ),
+            "enable_visual_consistency_check": ConfigField(
+                type=bool,
+                default=False,
+                description="是否启用视觉一致性自检。开启后会用文本LLM判断【计划场景】与【视觉摘要】是否明显冲突；若冲突则配文更偏向视觉摘要（默认关闭以节省调用）",
+                depends_on="auto_selfie.enable_visual_summary",
+                depends_value=True,
+                order=27,
+            ),
+            # ==================== 10. 配文人设注入 ====================
             "caption_persona_enabled": ConfigField(
                 type=bool,
                 default=True,
                 description="是否启用配文人设注入。开启后LLM会根据caption_persona_text中的人设生成配文，让配文风格符合角色个性",
                 depends_on="auto_selfie.enable_narrative",
                 depends_value=True,
-                order=25
+                order=28,
             ),
             "caption_persona_text": ConfigField(
                 type=str,
@@ -928,7 +834,7 @@ class CustomPicPlugin(BasePlugin):
                 hint="描述角色的身份、性格特点，让配文更符合人设",
                 depends_on="auto_selfie.caption_persona_enabled",
                 depends_value=True,
-                order=26
+                order=29,
             ),
             "caption_reply_style": ConfigField(
                 type=str,
@@ -940,23 +846,23 @@ class CustomPicPlugin(BasePlugin):
                 hint="描述说话的语气、习惯，让配文风格更一致",
                 depends_on="auto_selfie.caption_persona_enabled",
                 depends_value=True,
-                order=27
-            )
+                order=30,
+            ),
         },
         "prompt_optimizer": {
             "enabled": ConfigField(
                 type=bool,
                 default=True,
                 description="是否启用提示词优化器。开启后会使用 MaiBot 主 LLM 将用户描述优化为专业英文提示词",
-                order=1
+                order=1,
             ),
             "hint": ConfigField(
                 type=str,
                 default="优化器会自动将中文描述翻译并优化为专业的英文绘画提示词，提升生成效果。关闭后将直接使用用户原始描述。",
                 description="功能说明",
                 disabled=True,
-                order=2
-            )
+                order=2,
+            ),
         },
         "search_reference": {
             "hint": ConfigField(
@@ -964,14 +870,9 @@ class CustomPicPlugin(BasePlugin):
                 default="开启后，当用户提到冷门角色名时，插件会自动联网搜索该角色的参考图，并使用视觉AI提取特征（发色、服装等）合并到提示词中，尽量缓解绘图模型不认识角色的问题。注意：如果使用的绘图模型本身就能够联网或认识角色（如Gemini），则不必开启本功能。",
                 description="功能说明",
                 disabled=True,
-                order=0
+                order=0,
             ),
-            "enabled": ConfigField(
-                type=bool,
-                default=False,
-                description="是否启用智能参考搜索功能",
-                order=1
-            ),
+            "enabled": ConfigField(type=bool, default=False, description="是否启用智能参考搜索功能", order=1),
             "vision_api_key": ConfigField(
                 type=str,
                 default="",
@@ -979,7 +880,7 @@ class CustomPicPlugin(BasePlugin):
                 input_type="password",
                 depends_on="search_reference.enabled",
                 depends_value=True,
-                order=2
+                order=2,
             ),
             "vision_base_url": ConfigField(
                 type=str,
@@ -987,7 +888,7 @@ class CustomPicPlugin(BasePlugin):
                 description="识图API地址（仅在vision_api_key不为空时生效）",
                 depends_on="search_reference.enabled",
                 depends_value=True,
-                order=3
+                order=3,
             ),
             "vision_model": ConfigField(
                 type=str,
@@ -995,8 +896,8 @@ class CustomPicPlugin(BasePlugin):
                 description="视觉模型名称（仅在vision_api_key不为空时生效）",
                 depends_on="search_reference.enabled",
                 depends_value=True,
-                order=4
-            )
+                order=4,
+            ),
         },
         "models": {
             "hint": ConfigField(
@@ -1004,7 +905,7 @@ class CustomPicPlugin(BasePlugin):
                 default="添加更多模型：编辑 config.toml，复制 [models.model1] 整节并改名为 model2、model3 等",
                 description="配置说明",
                 disabled=True,
-                order=1
+                order=1,
             )
         },
         # 模型配置通过工厂函数动态生成，减少重复代码
@@ -1014,6 +915,7 @@ class CustomPicPlugin(BasePlugin):
     def __init__(self, plugin_dir: str):
         """初始化插件，集成增强配置管理器"""
         import toml
+
         # 在父类初始化前读取原始配置文件
         config_path = os.path.join(plugin_dir, self.config_file_name)
         original_config = None
@@ -1024,45 +926,46 @@ class CustomPicPlugin(BasePlugin):
                 print(f"[CustomPicPlugin] 读取原始配置文件: {config_path}")
             except Exception as e:
                 print(f"[CustomPicPlugin] 读取原始配置失败: {e}")
-        
+
         # 先调用父类初始化，这会加载配置并可能触发 MaiBot 迁移
         super().__init__(plugin_dir)
-        
+
         # 初始化增强配置管理器
         self.enhanced_config_manager = EnhancedConfigManager(plugin_dir, self.config_file_name)
-        
+
         # 注入插件实例到 Command 类，以便 Command 可以访问配置管理器保存配置
         PicConfigCommand.plugin_instance = self
-        
+
         # 检查并更新配置（如果需要），传入原始配置
         self._enhance_config_management(original_config)
-        
+
         # 检查插件启用状态和定时自拍配置
         from src.common.logger import get_logger as get_logger_func
+
         plugin_logger = get_logger_func("custom_pic_plugin")
-        
+
         plugin_enabled = self.get_config("plugin.enabled", False)
         auto_selfie_enabled = self.get_config("auto_selfie.enabled", False)
-        
+
         # 注册定时任务
         if plugin_enabled and auto_selfie_enabled:
             from src.manager.async_task_manager import async_task_manager
-            from .core.auto_selfie_task import AutoSelfieTask
-            
+
             # 【关键修复】检查全局 abort_flag 状态并自动修复
             # 如果之前的操作（如停止所有任务）导致 abort_flag 仍处于 set 状态，
             # 新注册的任务将直接跳过执行。这里需要强制清除它。
             if async_task_manager.abort_flag.is_set():
                 plugin_logger.warning("[CustomPicPlugin] 检测到全局任务中止标志异常，已自动重置")
                 async_task_manager.abort_flag.clear()
-            
+
             self._register_auto_selfie_task()
-    
+
     def _register_auto_selfie_task(self):
         """注册定时自拍任务"""
         from src.common.logger import get_logger as get_logger_func
+
         plugin_logger = get_logger_func("custom_pic_plugin")
-        
+
         try:
             from src.manager.async_task_manager import async_task_manager
             from .core.auto_selfie_task import AutoSelfieTask
@@ -1070,48 +973,51 @@ class CustomPicPlugin(BasePlugin):
 
             # 创建并注册任务
             task = AutoSelfieTask(self)
-            
+
             # 定义回调函数
             def _on_task_added(t):
                 try:
                     t.result()
-                    plugin_logger.info(f"[CustomPicPlugin] 定时自拍任务已成功注册")
+                    plugin_logger.info("[CustomPicPlugin] 定时自拍任务已成功注册")
                 except Exception as e:
                     plugin_logger.error(f"[CustomPicPlugin] 定时自拍任务注册失败: {e}")
 
             # 提交给事件循环
             asyncio.create_task(async_task_manager.add_task(task, call_back=_on_task_added))
-            
+
         except Exception as e:
             plugin_logger.error(f"[CustomPicPlugin] 注册定时任务时发生错误: {e}")
-    
+
     def _enhance_config_management(self, original_config=None):
         """增强配置管理：备份、版本检查、智能合并
-        
+
         Args:
             original_config: 从磁盘读取的原始配置（在父类初始化前读取），用于恢复用户自定义值
         """
         # 获取期望的配置版本
         expected_version = self._get_expected_config_version()
-        
+
         # 将config_schema转换为EnhancedConfigManager需要的格式
         schema_for_manager = self._convert_schema_for_manager()
-        
+
         # 生成默认配置结构
         default_config = self._generate_default_config_from_schema()
-        
+
         # 确定要使用的旧配置：优先使用传入的原始配置，其次从备份文件加载
         old_config = original_config
         if old_config is None:
             old_dir = os.path.join(self.plugin_dir, "old")
             if os.path.exists(old_dir):
                 import toml
+
                 # 查找最新的备份文件（按时间戳排序），包括 auto_backup、new_backup 和 backup 文件
                 backup_files = []
                 for fname in os.listdir(old_dir):
-                    if (fname.startswith(self.config_file_name + ".backup_") or
-                        fname.startswith(self.config_file_name + ".new_backup_") or
-                        fname.startswith(self.config_file_name + ".auto_backup_")) and fname.endswith(".toml"):
+                    if (
+                        fname.startswith(self.config_file_name + ".backup_")
+                        or fname.startswith(self.config_file_name + ".new_backup_")
+                        or fname.startswith(self.config_file_name + ".auto_backup_")
+                    ) and fname.endswith(".toml"):
                         backup_files.append(fname)
                 if backup_files:
                     # 按时间戳排序（文件名中包含 _YYYYMMDD_HHMMSS）
@@ -1123,7 +1029,7 @@ class CustomPicPlugin(BasePlugin):
                         print(f"[CustomPicPlugin] 从备份文件加载原始配置: {backup_files[0]}")
                     except Exception as e:
                         print(f"[CustomPicPlugin] 加载备份文件失败: {e}")
-        
+
         # 每次启动时创建备份（无论版本是否相同）
         # 加载当前配置文件以获取版本
         current_config = self.enhanced_config_manager.load_config()
@@ -1132,24 +1038,24 @@ class CustomPicPlugin(BasePlugin):
             print(f"[CustomPicPlugin] 当前配置版本 v{current_version}，创建启动备份")
             self.enhanced_config_manager.backup_config(current_version)
         else:
-            print(f"[CustomPicPlugin] 配置文件不存在，跳过启动备份")
-        
+            print("[CustomPicPlugin] 配置文件不存在，跳过启动备份")
+
         # 使用增强配置管理器检查并更新配置
         # 传入旧配置（如果存在）以恢复用户自定义值
         updated_config = self.enhanced_config_manager.update_config_if_needed(
             expected_version=expected_version,
             default_config=default_config,
             schema=schema_for_manager,
-            old_config=old_config
+            old_config=old_config,
         )
-        
+
         # 如果配置有更新，更新self.config
         if updated_config and updated_config != self.config:
             self.config = updated_config
             # 同时更新enable_plugin状态
             if "plugin" in self.config and "enabled" in self.config["plugin"]:
                 self.enable_plugin = self.config["plugin"]["enabled"]
-    
+
     def _get_expected_config_version(self) -> str:
         """获取期望的配置版本号"""
         if "plugin" in self.config_schema and isinstance(self.config_schema["plugin"], dict):
@@ -1157,15 +1063,15 @@ class CustomPicPlugin(BasePlugin):
             if isinstance(config_version_field, ConfigField):
                 return config_version_field.default
         return "1.0.0"
-    
+
     def _convert_schema_for_manager(self) -> Dict[str, Any]:
         """将ConfigField格式的schema转换为EnhancedConfigManager需要的格式"""
         schema_for_manager = {}
-        
+
         for section, fields in self.config_schema.items():
             if not isinstance(fields, dict):
                 continue
-                
+
             section_schema = {}
             for field_name, field in fields.items():
                 if isinstance(field, ConfigField):
@@ -1174,28 +1080,28 @@ class CustomPicPlugin(BasePlugin):
                         "default": field.default,
                         "required": field.required,
                         "choices": field.choices if field.choices else None,
-                        "example": field.example
+                        "example": field.example,
                     }
-            
+
             schema_for_manager[section] = section_schema
-        
+
         return schema_for_manager
-    
+
     def _generate_default_config_from_schema(self) -> Dict[str, Any]:
         """从schema生成默认配置结构"""
         default_config = {}
-        
+
         for section, fields in self.config_schema.items():
             if not isinstance(fields, dict):
                 continue
-                
+
             section_config = {}
             for field_name, field in fields.items():
                 if isinstance(field, ConfigField):
                     section_config[field_name] = field.default
-            
+
             default_config[section] = section_config
-        
+
         return default_config
 
     def get_plugin_components(self) -> List[Tuple[ComponentInfo, Type]]:

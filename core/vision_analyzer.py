@@ -1,10 +1,10 @@
-﻿import asyncio
 import base64
 import aiohttp
 import logging
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
 
 class VisionAnalyzer:
     """视觉分析客户端，调用支持视觉的LLM提取特征"""
@@ -17,10 +17,10 @@ class VisionAnalyzer:
     async def analyze_image(self, image_url: str) -> str:
         """
         下载图片并发送给视觉模型分析特征
-        
+
         Args:
             image_url: 图片URL
-            
+
         Returns:
             提取的英文提示词（如：red hair, white hat, ...）
         """
@@ -31,11 +31,8 @@ class VisionAnalyzer:
                 return ""
 
             # 2. 构造请求体
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
-            
+            headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+
             payload = {
                 "model": self.model_name,
                 "messages": [
@@ -49,31 +46,26 @@ class VisionAnalyzer:
                                     "提取关键特征并转化为 Stable Diffusion 格式的英文提示词（Tag）。"
                                     "包括但不限于：发色、瞳色、发型、服装、配饰、姿势、背景风格等。"
                                     "只需返回提示词，不要包含任何解释性文字。"
-                                )
+                                ),
                             },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_base64}"
-                                }
-                            }
-                        ]
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
+                        ],
                     }
                 ],
-                "max_tokens": 300
+                "max_tokens": 300,
             }
 
             # 3. 发送请求
             api_endpoint = f"{self.base_url}/chat/completions"
-            logger.info(f"[VisionAnalyzer] 正在请求视觉API分析图片...")
-            
+            logger.info("[VisionAnalyzer] 正在请求视觉API分析图片...")
+
             async with aiohttp.ClientSession() as session:
                 async with session.post(api_endpoint, headers=headers, json=payload) as resp:
                     if resp.status != 200:
                         error_text = await resp.text()
                         logger.error(f"[VisionAnalyzer] API请求失败: {resp.status} - {error_text}")
                         return ""
-                    
+
                     data = await resp.json()
                     content = data["choices"][0]["message"]["content"].strip()
                     logger.info(f"[VisionAnalyzer] 分析成功，提取特征: {content[:100]}...")
@@ -90,7 +82,7 @@ class VisionAnalyzer:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                     if resp.status == 200:
                         image_bytes = await resp.read()
-                        return base64.b64encode(image_bytes).decode('utf-8')
+                        return base64.b64encode(image_bytes).decode("utf-8")
                     else:
                         logger.warning(f"[VisionAnalyzer] 下载图片失败: {resp.status}")
                         return None

@@ -1,4 +1,4 @@
-﻿"""
+"""
 图片搜索适配器
 独立实现，不依赖外部插件
 """
@@ -20,10 +20,8 @@ class ImageSearchAdapter:
         if cls._engine_cache is None:
             try:
                 from .search_engines.bing import BingImageEngine
-                cls._engine_cache = BingImageEngine({
-                    "timeout": 20,
-                    "region": "zh-CN"
-                })
+
+                cls._engine_cache = BingImageEngine({"timeout": 20, "region": "zh-CN"})
                 logger.info("[ImageSearchAdapter] 初始化Bing图片搜索引擎成功")
             except Exception as e:
                 logger.error(f"[ImageSearchAdapter] 初始化搜索引擎失败: {e}")
@@ -53,12 +51,12 @@ class ImageSearchAdapter:
 
         try:
             results = await engine.search_images(query, max_results)
-            
+
             if results and len(results) > 0:
                 # 提取第一张图片的URL
                 first_result = results[0]
-                image_url = first_result.image if hasattr(first_result, 'image') else None
-                
+                image_url = first_result.image if hasattr(first_result, "image") else None
+
                 if image_url:
                     logger.info(f"[ImageSearchAdapter] 找到图片: {image_url}")
                     return image_url
@@ -89,12 +87,12 @@ class ImageSearchAdapter:
 
         try:
             results = await engine.search_images(query, max_results)
-            
+
             urls = []
             for result in results:
-                if hasattr(result, 'image') and result.image:
+                if hasattr(result, "image") and result.image:
                     urls.append(result.image)
-            
+
             logger.info(f"[ImageSearchAdapter] 找到 {len(urls)} 张图片")
             return urls
         except Exception as e:

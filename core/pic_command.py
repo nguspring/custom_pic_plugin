@@ -13,6 +13,7 @@ from .size_utils import get_image_size_async
 
 logger = get_logger("pic_command")
 
+
 class PicGenerationCommand(BaseCommand):
     """图生图Command组件，支持通过命令进行图生图，可选择特定模型"""
 
@@ -82,7 +83,7 @@ class PicGenerationCommand(BaseCommand):
 
         # 步骤2：配置中没有该风格，判断是否是自然语言
         # 检测自然语言特征
-        action_words = ['画', '生成', '绘制', '创作', '制作', '画成', '变成', '改成', '用', '来', '帮我', '给我']
+        action_words = ["画", "生成", "绘制", "创作", "制作", "画成", "变成", "改成", "用", "来", "帮我", "给我"]
         has_action_word = any(word in content for word in action_words)
         is_long_text = len(content) > 6
 
@@ -95,14 +96,18 @@ class PicGenerationCommand(BaseCommand):
             await self.send_text(f"风格 '{content}' 不存在，使用 /dr styles 查看所有风格")
             return False, f"风格 '{content}' 不存在", True
 
-    async def _execute_style_mode(self, style_name: str, actual_style_name: str, style_prompt: str) -> Tuple[bool, Optional[str], bool]:
+    async def _execute_style_mode(
+        self, style_name: str, actual_style_name: str, style_prompt: str
+    ) -> Tuple[bool, Optional[str], bool]:
         """执行风格模式（只支持图生图，必须有输入图片）"""
         # 获取聊天流ID
         chat_id = self._get_chat_id()
 
         # 从运行时状态获取Command组件使用的模型
         global_command_model = str(self.get_config("components.pic_command_model", "model1"))
-        model_id = runtime_state.get_command_default_model(chat_id, global_command_model) if chat_id else global_command_model
+        model_id = (
+            runtime_state.get_command_default_model(chat_id, global_command_model) if chat_id else global_command_model
+        )
 
         # 检查模型是否在当前聊天流启用
         if chat_id and not runtime_state.is_model_enabled(chat_id, str(model_id)):
@@ -137,9 +142,7 @@ class PicGenerationCommand(BaseCommand):
             return False, f"模型 {model_id} 不支持图生图", True
 
         # 使用统一的尺寸处理逻辑（异步版本，支持 LLM 选择尺寸）
-        image_size, llm_original_size = await get_image_size_async(
-            model_config, final_description, "", self.log_prefix
-        )
+        image_size, llm_original_size = await get_image_size_async(model_config, final_description, "", self.log_prefix)
 
         # 显示开始信息
         if enable_debug:
@@ -162,16 +165,16 @@ class PicGenerationCommand(BaseCommand):
                 max_retries_val = max_retries
             elif isinstance(max_retries, str) and max_retries.isdigit():
                 max_retries_val = int(max_retries)
-            
+
             input_image_val: Optional[str] = str(input_image_base64) if input_image_base64 else None
-            
+
             success, result = await api_client.generate_image(
                 prompt=final_description,
                 model_config=model_config,
                 size=image_size,
                 strength=0.7,  # 默认强度
                 input_image_base64=input_image_val,
-                max_retries=max_retries_val
+                max_retries=max_retries_val,
             )
 
             if success:
@@ -241,7 +244,11 @@ class PicGenerationCommand(BaseCommand):
         else:
             # 从运行时状态获取默认模型
             global_command_model = str(self.get_config("components.pic_command_model", "model1"))
-            model_id = runtime_state.get_command_default_model(chat_id, global_command_model) if chat_id else global_command_model
+            model_id = (
+                runtime_state.get_command_default_model(chat_id, global_command_model)
+                if chat_id
+                else global_command_model
+            )
 
         # 检查模型是否在当前聊天流启用
         if chat_id and not runtime_state.is_model_enabled(chat_id, str(model_id)):
@@ -288,9 +295,7 @@ class PicGenerationCommand(BaseCommand):
                 logger.warning(f"{self.log_prefix} 提示词优化失败，使用原始描述")
 
         # 使用统一的尺寸处理逻辑（异步版本，支持 LLM 选择尺寸）
-        image_size, llm_original_size = await get_image_size_async(
-            model_config, description, "", self.log_prefix
-        )
+        image_size, llm_original_size = await get_image_size_async(model_config, description, "", self.log_prefix)
 
         if enable_debug:
             await self.send_text(f"正在使用 {model_id} 模型进行{mode_text}...")
@@ -322,7 +327,7 @@ class PicGenerationCommand(BaseCommand):
                 size=image_size,
                 strength=strength_val,
                 input_image_base64=input_image_val,
-                max_retries=max_retries_val
+                max_retries=max_retries_val,
             )
 
             if success:
@@ -382,9 +387,9 @@ class PicGenerationCommand(BaseCommand):
         """
         # 匹配模式：用/使用 + model/模型 + 数字/ID
         patterns = [
-            r'(?:用|使用)\s*(model\d+)',  # 用model1, 使用model2
-            r'(?:用|使用)\s*(?:模型|型号)\s*(\d+)',  # 用模型1, 使用型号2
-            r'^(model\d+)',  # model1开头
+            r"(?:用|使用)\s*(model\d+)",  # 用model1, 使用model2
+            r"(?:用|使用)\s*(?:模型|型号)\s*(\d+)",  # 用模型1, 使用型号2
+            r"^(model\d+)",  # model1开头
         ]
 
         for pattern in patterns:
@@ -402,13 +407,13 @@ class PicGenerationCommand(BaseCommand):
         """移除描述中的模型指定部分"""
         # 移除模式
         patterns = [
-            r'(?:用|使用)\s*model\d+\s*(?:画|生成|创作)?',
-            r'(?:用|使用)\s*(?:模型|型号)\s*\d+\s*(?:画|生成|创作)?',
-            r'^model\d+\s*(?:画|生成|创作)?',
+            r"(?:用|使用)\s*model\d+\s*(?:画|生成|创作)?",
+            r"(?:用|使用)\s*(?:模型|型号)\s*\d+\s*(?:画|生成|创作)?",
+            r"^model\d+\s*(?:画|生成|创作)?",
         ]
 
         for pattern in patterns:
-            description = re.sub(pattern, '', description, flags=re.IGNORECASE)
+            description = re.sub(pattern, "", description, flags=re.IGNORECASE)
 
         return description.strip()
 
@@ -438,7 +443,7 @@ class PicGenerationCommand(BaseCommand):
                 for english_name, aliases_str in style_aliases_config.items():
                     if isinstance(aliases_str, str):
                         # 支持多个别名，用逗号分隔
-                        aliases = [alias.strip() for alias in aliases_str.split(',')]
+                        aliases = [alias.strip() for alias in aliases_str.split(",")]
                         if style_name in aliases:
                             logger.info(f"{self.log_prefix} 风格别名 '{style_name}' 解析为 '{english_name}'")
                             return english_name
@@ -462,7 +467,6 @@ class PicGenerationCommand(BaseCommand):
             logger.error(f"{self.log_prefix} 获取风格配置失败: {e!r}")
             return None
 
-
     def _download_and_encode_base64(self, image_url: str) -> Tuple[bool, str]:
         """下载图片并转换为base64编码"""
         try:
@@ -471,29 +475,25 @@ class PicGenerationCommand(BaseCommand):
 
             # 获取代理配置
             proxy_enabled = self.get_config("proxy.enabled", False)
-            request_kwargs = {
-                "url": image_url,
-                "timeout": 30
-            }
+            request_kwargs = {"url": image_url, "timeout": 30}
 
             if proxy_enabled:
                 proxy_url = self.get_config("proxy.url", "http://127.0.0.1:7890")
-                request_kwargs["proxies"] = {
-                    "http": proxy_url,
-                    "https": proxy_url
-                }
+                request_kwargs["proxies"] = {"http": proxy_url, "https": proxy_url}
                 logger.info(f"{self.log_prefix} 下载图片使用代理: {proxy_url}")
 
             response = requests.get(**request_kwargs)
             if response.status_code == 200:
-                image_base64 = base64.b64encode(response.content).decode('utf-8')
+                image_base64 = base64.b64encode(response.content).decode("utf-8")
                 return True, image_base64
             else:
                 return False, f"HTTP {response.status_code}"
         except Exception as e:
             return False, str(e)
 
-    async def _schedule_auto_recall_for_recent_message(self, model_config: Optional[Dict[str, Any]] = None, model_id: Optional[str] = None):
+    async def _schedule_auto_recall_for_recent_message(
+        self, model_config: Optional[Dict[str, Any]] = None, model_id: Optional[str] = None
+    ):
         """安排最近发送消息的自动撤回
 
         Args:
@@ -543,7 +543,7 @@ class PicGenerationCommand(BaseCommand):
                     start_time=current_time - 10,
                     end_time=current_time + 1,
                     limit=5,
-                    limit_mode="latest"
+                    limit_mode="latest",
                 )
 
                 # 找到Bot发送的图片消息
@@ -577,9 +577,7 @@ class PicGenerationCommand(BaseCommand):
                 for cmd in DELETE_COMMAND_CANDIDATES:
                     try:
                         result = await self.send_command(
-                            command_name=cmd,
-                            args={"message_id": str(target_message_id)},
-                            storage_message=False
+                            command_name=cmd, args={"message_id": str(target_message_id)}, storage_message=False
                         )
 
                         # 检查返回结果
@@ -591,7 +589,9 @@ class PicGenerationCommand(BaseCommand):
                             status = str(result.get("status", "")).lower()
                             if status in ("ok", "success") or result.get("retcode") == 0 or result.get("code") == 0:
                                 recall_success = True
-                                logger.info(f"{self.log_prefix} 消息自动撤回成功，命令: {cmd}，消息ID: {target_message_id}")
+                                logger.info(
+                                    f"{self.log_prefix} 消息自动撤回成功，命令: {cmd}，消息ID: {target_message_id}"
+                                )
                                 break
                     except Exception as e:
                         logger.debug(f"{self.log_prefix} 撤回命令 {cmd} 失败: {e}")
@@ -611,7 +611,7 @@ class PicGenerationCommand(BaseCommand):
 
 class PicConfigCommand(BaseCommand):
     """图片生成配置管理命令"""
-    
+
     # 注入插件实例，用于保存配置
     plugin_instance: Any = None
 
@@ -776,8 +776,6 @@ class PicConfigCommand(BaseCommand):
                 await self.send_text(f"模型 '{model_id}' 已被禁用")
                 return False, f"模型 '{model_id}' 已被禁用", True
 
-            model_name = model_config.get("name", model_config.get("model", "未知")) if isinstance(model_config, dict) else "未知"
-
             # 设置运行时状态
             runtime_state.set_command_default_model(chat_id, model_id)
 
@@ -823,7 +821,6 @@ class PicConfigCommand(BaseCommand):
             global_action_model = str(self.get_config("generation.default_model", "model1"))
             global_command_model = str(self.get_config("components.pic_command_model", "model1"))
             global_plugin_enabled = bool(self.get_config("plugin.enabled", True))
-            global_recall_enabled = self.get_config("auto_recall.enabled", False)
 
             # 获取运行时状态
             plugin_enabled = runtime_state.is_plugin_enabled(chat_id, global_plugin_enabled)
@@ -853,15 +850,17 @@ class PicConfigCommand(BaseCommand):
                 message_lines.append(f"🔕 撤回已关闭: {', '.join(recall_disabled)}")
 
             # 管理员命令提示
-            message_lines.extend([
-                "\n📖 管理员命令：",
-                "• /dr on|off - 开关插件",
-                "• /dr model on|off <模型ID> - 开关模型",
-                "• /dr recall on|off <模型ID> - 开关撤回",
-                "• /dr default <模型ID> - 设置默认模型",
-                "• /dr set <模型ID> - 设置/dr命令模型",
-                "• /dr reset - 重置所有配置"
-            ])
+            message_lines.extend(
+                [
+                    "\n📖 管理员命令：",
+                    "• /dr on|off - 开关插件",
+                    "• /dr model on|off <模型ID> - 开关模型",
+                    "• /dr recall on|off <模型ID> - 开关撤回",
+                    "• /dr default <模型ID> - 设置默认模型",
+                    "• /dr set <模型ID> - 设置/dr命令模型",
+                    "• /dr reset - 重置所有配置",
+                ]
+            )
 
             message = "\n".join(message_lines)
             await self.send_text(message)
@@ -913,7 +912,7 @@ class PicConfigCommand(BaseCommand):
             model_config = self.get_config(f"models.{model_id}")
             if not model_config:
                 await self.send_text(f"模型 '{model_id}' 不存在")
-                return False, f"模型不存在", True
+                return False, "模型不存在", True
 
             enabled = action == "on"
             runtime_state.set_model_enabled(chat_id, model_id, enabled)
@@ -946,7 +945,7 @@ class PicConfigCommand(BaseCommand):
             model_config = self.get_config(f"models.{model_id}")
             if not model_config:
                 await self.send_text(f"模型 '{model_id}' 不存在")
-                return False, f"模型不存在", True
+                return False, "模型不存在", True
 
             enabled = action == "on"
             runtime_state.set_recall_enabled(chat_id, model_id, enabled)
@@ -971,18 +970,17 @@ class PicConfigCommand(BaseCommand):
             model_config = self.get_config(f"models.{model_id}")
             if not model_config:
                 await self.send_text(f"模型 '{model_id}' 不存在")
-                return False, f"模型不存在", True
+                return False, "模型不存在", True
 
             # 检查模型是否被禁用
             if not runtime_state.is_model_enabled(chat_id, model_id):
                 await self.send_text(f"模型 '{model_id}' 已被禁用")
-                return False, f"模型已被禁用", True
+                return False, "模型已被禁用", True
 
-            model_name = model_config.get("name", model_config.get("model", "未知")) if isinstance(model_config, dict) else "未知"
             runtime_state.set_action_default_model(chat_id, model_id)
 
             await self.send_text(f"已设置: {model_id}")
-            return True, f"设置成功", True
+            return True, "设置成功", True
 
         except Exception as e:
             logger.error(f"{self.log_prefix} 设置默认模型失败: {e!r}")
@@ -1000,26 +998,26 @@ class PicConfigCommand(BaseCommand):
             enabled = self.get_config("auto_selfie.enabled", False)
             list_mode = self.get_config("auto_selfie.list_mode", "whitelist")
             chat_id_list = self.get_config("auto_selfie.chat_id_list", [])
-            
+
             # 确保是列表
             if not isinstance(chat_id_list, list):
                 chat_id_list = []
                 # 尝试兼容旧配置
                 old_allowed = self.get_config("auto_selfie.allowed_chat_ids", [])
                 if isinstance(old_allowed, list) and old_allowed:
-                    chat_id_list = list(old_allowed) # Create copy
+                    chat_id_list = list(old_allowed)  # Create copy
 
             # 解析参数
             args = params.split()
             sub_action = args[0].lower() if args else ""
-            
+
             if not sub_action:
                 # 显示状态
                 mode_cn = "白名单 (仅允许列表)" if list_mode == "whitelist" else "黑名单 (排除列表)"
                 status_cn = "✅ 开启" if enabled else "❌ 关闭"
-                
+
                 in_list = chat_id in chat_id_list
-                
+
                 msg = [
                     "📷 定时自拍管理",
                     f"状态: {status_cn}",
@@ -1035,7 +1033,7 @@ class PicConfigCommand(BaseCommand):
                     "/dr auto_selfie mode white|black - 切换模式",
                     "/dr auto_selfie add - 将当前聊天加入列表",
                     "/dr auto_selfie remove - 将当前聊天移出列表",
-                    "/dr auto_selfie list - 查看列表详情"
+                    "/dr auto_selfie list - 查看列表详情",
                 ]
                 await self.send_text("\n".join(msg))
                 return True, "显示自拍管理信息", True
@@ -1045,7 +1043,7 @@ class PicConfigCommand(BaseCommand):
                 self.plugin_instance.config["auto_selfie"] = {}
 
             if sub_action in ["on", "off"]:
-                new_value = (sub_action == "on")
+                new_value = sub_action == "on"
                 self.plugin_instance.config["auto_selfie"]["enabled"] = new_value
                 self.plugin_instance.enhanced_config_manager.save_config(self.plugin_instance.config)
                 await self.send_text(f"定时自拍已{'开启' if new_value else '关闭'}")
@@ -1063,10 +1061,10 @@ class PicConfigCommand(BaseCommand):
                 else:
                     await self.send_text("无效模式，请使用 white 或 black")
                     return False, "无效模式", True
-                
+
                 self.plugin_instance.config["auto_selfie"]["list_mode"] = new_mode
                 self.plugin_instance.enhanced_config_manager.save_config(self.plugin_instance.config)
-                
+
                 mode_cn = "白名单" if new_mode == "whitelist" else "黑名单"
                 await self.send_text(f"已切换为: {mode_cn}模式")
                 return True, f"切换模式为{new_mode}", True
@@ -1075,12 +1073,12 @@ class PicConfigCommand(BaseCommand):
                 if chat_id in chat_id_list:
                     await self.send_text("当前聊天已在列表中")
                     return True, "已在列表", True
-                
+
                 # 更新列表
                 chat_id_list.append(chat_id)
                 self.plugin_instance.config["auto_selfie"]["chat_id_list"] = chat_id_list
                 self.plugin_instance.enhanced_config_manager.save_config(self.plugin_instance.config)
-                
+
                 await self.send_text(f"已将 {chat_id} 加入列表")
                 return True, "加入列表成功", True
 
@@ -1088,12 +1086,12 @@ class PicConfigCommand(BaseCommand):
                 if chat_id not in chat_id_list:
                     await self.send_text("当前聊天不在列表中")
                     return True, "不在列表", True
-                
+
                 # 更新列表
                 chat_id_list.remove(chat_id)
                 self.plugin_instance.config["auto_selfie"]["chat_id_list"] = chat_id_list
                 self.plugin_instance.enhanced_config_manager.save_config(self.plugin_instance.config)
-                
+
                 await self.send_text(f"已将 {chat_id} 移出列表")
                 return True, "移出列表成功", True
 
@@ -1109,8 +1107,8 @@ class PicConfigCommand(BaseCommand):
                 return True, "查看列表", True
 
             else:
-                 await self.send_text("未知子命令，请使用 /dr auto_selfie 查看帮助")
-                 return False, "未知子命令", True
+                await self.send_text("未知子命令，请使用 /dr auto_selfie 查看帮助")
+                return False, "未知子命令", True
 
         except Exception as e:
             logger.error(f"{self.log_prefix} 管理自拍配置失败: {e!r}")
@@ -1121,7 +1119,7 @@ class PicConfigCommand(BaseCommand):
         """检查用户权限"""
         try:
             admin_users = self.get_config("components.admin_users", [])
-            
+
             # Pylance fix: Ensure admin_users is a list
             if not isinstance(admin_users, list):
                 return False
@@ -1132,11 +1130,11 @@ class PicConfigCommand(BaseCommand):
                 raw_uid = getattr(self.message.message_info.user_info, "user_id", None)
                 if raw_uid is not None:
                     user_id = str(raw_uid)
-            
+
             # Pylance fix: Ensure user_id is not None
             if user_id is None:
                 return False
-                
+
             # Convert config IDs to strings for robust comparison
             return user_id in [str(u) for u in admin_users]
         except Exception:
@@ -1164,8 +1162,6 @@ class PicStyleCommand(BaseCommand):
         has_permission = self._check_permission()
 
         # style命令需要管理员权限
-        # 获取聊天流ID
-        chat_id = self._get_chat_id()
 
         if action == "style" and not has_permission:
             await self.send_text("你无权使用此命令", storage_message=False)
@@ -1202,9 +1198,9 @@ class PicStyleCommand(BaseCommand):
                 if isinstance(prompt, str):
                     # 查找这个风格的别名
                     aliases = []
-                    for alias_style, alias_names in (aliases_config.items() if isinstance(aliases_config, dict) else []):
+                    for alias_style, alias_names in aliases_config.items() if isinstance(aliases_config, dict) else []:
                         if alias_style == style_id and isinstance(alias_names, str):
-                            aliases = [name.strip() for name in alias_names.split(',')]
+                            aliases = [name.strip() for name in alias_names.split(",")]
                             break
 
                     alias_text = f" (别名: {', '.join(aliases)})" if aliases else ""
@@ -1239,25 +1235,17 @@ class PicStyleCommand(BaseCommand):
             # 查找别名
             aliases_config = self.get_config("style_aliases", {})
             aliases = []
-            for alias_style, alias_names in (aliases_config.items() if isinstance(aliases_config, dict) else []):
+            for alias_style, alias_names in aliases_config.items() if isinstance(aliases_config, dict) else []:
                 if alias_style == actual_style and isinstance(alias_names, str):
-                    aliases = [name.strip() for name in alias_names.split(',')]
+                    aliases = [name.strip() for name in alias_names.split(",")]
                     break
 
-            message_lines = [
-                f"🎨 风格详情：{actual_style}\n",
-                f"📝 完整提示词：",
-                f"{style_prompt}\n"
-            ]
+            message_lines = [f"🎨 风格详情：{actual_style}\n", "📝 完整提示词：", f"{style_prompt}\n"]
 
             if aliases:
                 message_lines.append(f"🏷️ 别名: {', '.join(aliases)}\n")
 
-            message_lines.extend([
-                "💡 使用方法：",
-                f"/dr {style_name}",
-                "\n⚠️ 注意：需要先发送一张图片作为输入"
-            ])
+            message_lines.extend(["💡 使用方法：", f"/dr {style_name}", "\n⚠️ 注意：需要先发送一张图片作为输入"])
 
             message = "\n".join(message_lines)
             await self.send_text(message)
@@ -1332,10 +1320,10 @@ class PicStyleCommand(BaseCommand):
             # 获取管理员列表，默认为空列表
             # 使用 cast 忽略类型检查，因为 get_config 返回类型不确定
             raw_admin_users = self.get_config("components.admin_users", [])
-            
+
             if not isinstance(raw_admin_users, list):
                 return False
-            
+
             # 安全获取 user_id
             user_id = None
             if self.message and hasattr(self.message, "message_info"):
@@ -1344,15 +1332,15 @@ class PicStyleCommand(BaseCommand):
                     user_info = msg_info.user_info
                     if user_info and hasattr(user_info, "user_id"):
                         user_id = str(user_info.user_id)
-            
+
             if user_id is None:
                 return False
-                
+
             # 确保 admin_users 中的元素都是字符串以便比较
             # 使用列表推导式将所有元素转换为字符串
             # 显式使用 Any 类型注解绕过 Pylance 对未知类型的推断限制
             admin_users_str: list[str] = [str(uid) for uid in raw_admin_users]  # type: ignore
-            
+
             # 使用列表成员检查，Pylance可能会对Optional[str] in list[str]报错
             # 但我们在上面已经检查了user_id is not None
             if user_id is not None:
@@ -1374,7 +1362,7 @@ class PicStyleCommand(BaseCommand):
                 for english_name, aliases_str in style_aliases_config.items():
                     if isinstance(aliases_str, str):
                         # 支持多个别名，用逗号分隔
-                        aliases = [alias.strip() for alias in aliases_str.split(',')]
+                        aliases = [alias.strip() for alias in aliases_str.split(",")]
                         if style_name in aliases:
                             logger.info(f"{self.log_prefix} 风格别名 '{style_name}' 解析为 '{english_name}'")
                             return english_name

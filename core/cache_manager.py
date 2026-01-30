@@ -5,6 +5,7 @@ from src.common.logger import get_logger
 
 logger = get_logger("pic_action")
 
+
 class CacheManager:
     """缓存管理器"""
 
@@ -21,7 +22,9 @@ class CacheManager:
         """获取最大缓存数量配置"""
         return self.action.get_config("cache.max_size", 10)
 
-    def get_cached_result(self, description: str, model: str, size: str, strength: Optional[float] = None, is_img2img: bool = False) -> Optional[str]:
+    def get_cached_result(
+        self, description: str, model: str, size: str, strength: Optional[float] = None, is_img2img: bool = False
+    ) -> Optional[str]:
         """获取缓存的结果"""
         if not self.action.get_config("cache.enabled", True):
             return None
@@ -44,7 +47,15 @@ class CacheManager:
             logger.warning(f"{self.log_prefix} 获取缓存失败: {e}")
             return None
 
-    def cache_result(self, description: str, model: str, size: str, strength: Optional[float] = None, is_img2img: bool = False, result: Optional[str] = None):
+    def cache_result(
+        self,
+        description: str,
+        model: str,
+        size: str,
+        strength: Optional[float] = None,
+        is_img2img: bool = False,
+        result: Optional[str] = None,
+    ):
         """缓存结果"""
         if not self.action.get_config("cache.enabled", True) or not result:
             return
@@ -71,7 +82,9 @@ class CacheManager:
         except Exception as e:
             logger.warning(f"{self.log_prefix} 缓存结果失败: {e}")
 
-    def remove_cached_result(self, description: str, model: str, size: str, strength: Optional[float] = None, is_img2img: bool = False):
+    def remove_cached_result(
+        self, description: str, model: str, size: str, strength: Optional[float] = None, is_img2img: bool = False
+    ):
         """移除缓存的结果"""
         try:
             with self._cache_lock:
@@ -114,7 +127,7 @@ class CacheManager:
                     "txt2img_cache_max": max_size,
                     "img2img_cache_size": len(self._img2img_cache),
                     "img2img_cache_max": max_size,
-                    "cache_enabled": self.action.get_config("cache.enabled", True)
+                    "cache_enabled": self.action.get_config("cache.enabled", True),
                 }
         except Exception as e:
             logger.warning(f"{self.log_prefix} 获取缓存统计失败: {e}")
@@ -139,4 +152,3 @@ class CacheManager:
             keys_to_remove = list(cache_dict.keys())[: -max_size // 2]
             for key in keys_to_remove:
                 del cache_dict[key]
-

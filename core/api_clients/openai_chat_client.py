@@ -2,11 +2,11 @@
 专门用于处理通过 chat/completions 接口生成图片的供应商 (如 Nano Banana, OpenRouter, Claude 等)
 支持从混合文本或 Markdown 中提取图片 URL 或 Base64 数据
 """
+
 import json
 import re
 import urllib.request
-import traceback
-from typing import Dict, Any, Tuple, Optional, List
+from typing import Dict, Any, Tuple, Optional
 
 from .base_client import BaseApiClient, logger
 from ..size_utils import pixel_size_to_gemini_aspect
@@ -23,10 +23,10 @@ class OpenAIChatClient(BaseApiClient):
         model_config: Dict[str, Any],
         size: str,
         strength: Optional[float] = None,
-        input_image_base64: Optional[str] = None
+        input_image_base64: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """发送 chat/completions 请求并解析图片"""
-        base_url = model_config.get("base_url", "").rstrip('/')
+        base_url = model_config.get("base_url", "").rstrip("/")
         api_key = model_config.get("api_key", "")
         model = model_config.get("model", "")
 
@@ -42,19 +42,13 @@ class OpenAIChatClient(BaseApiClient):
 
         # 构造消息内容
         contents = [{"type": "text", "text": full_prompt}]
-        
+
         # 如果有输入图片，添加图生图支持 (兼容 Vision 格式)
         if input_image_base64:
             image_data_uri = self._prepare_image_data_uri(input_image_base64)
-            contents.append({
-                "type": "image_url",
-                "image_url": {"url": image_data_uri}
-            })
+            contents.append({"type": "image_url", "image_url": {"url": image_data_uri}})
 
-        messages = [{
-            "role": "user",
-            "content": contents if len(contents) > 1 else full_prompt
-        }]
+        messages = [{"role": "user", "content": contents if len(contents) > 1 else full_prompt}]
 
         payload = {
             "model": model,
@@ -78,7 +72,7 @@ class OpenAIChatClient(BaseApiClient):
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "Authorization": f"Bearer {api_key.replace('Bearer ', '')}" if api_key else ""
+            "Authorization": f"Bearer {api_key.replace('Bearer ', '')}" if api_key else "",
         }
 
         logger.info(f"{self.log_prefix} (ChatImage) 发起请求: {model}, To: {endpoint}")
@@ -88,28 +82,27 @@ class OpenAIChatClient(BaseApiClient):
         try:
             timeout = 600
             if proxy_config:
-                proxy_handler = urllib.request.ProxyHandler({
-                    'http': proxy_config['http'],
-                    'https': proxy_config['https']
-                })
+                proxy_handler = urllib.request.ProxyHandler(
+                    {"http": proxy_config["http"], "https": proxy_config["https"]}
+                )
                 opener = urllib.request.build_opener(proxy_handler)
                 urllib.request.install_opener(opener)
-                timeout = proxy_config.get('timeout', 600)
+                timeout = proxy_config.get("timeout", 600)
 
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 response_status = response.status
                 body_bytes = response.read()
                 body_str = body_bytes.decode("utf-8")
-                
+
                 if 200 <= response_status < 300:
                     resp_json = json.loads(body_str)
-                    
+
                     # 1. 尝试从 choices 提取 (Chat 模式)
                     choices = resp_json.get("choices")
                     if isinstance(choices, list) and choices:
                         message = choices[0].get("message", {})
                         content = message.get("content")
-                        
+
                         # 执行深度提取
                         extracted = self._extract_image_from_content(content)
                         if extracted:
@@ -119,13 +112,19 @@ class OpenAIChatClient(BaseApiClient):
                     # 2. 兜底尝试 OpenAI 标准图像格式 (以防万一)
                     if isinstance(resp_json.get("data"), list) and resp_json["data"]:
                         first = resp_json["data"][0]
-                        if "b64_json" in first: return True, first["b64_json"]
-                        if "url" in first: return True, first["url"]
+                        if "b64_json" in first:
+                            return True, first["b64_json"]
+                        if "url" in first:
+                            return True, first["url"]
 
-                    logger.error(f"{self.log_prefix} (ChatImage) 响应中未找到可识别的图片数据. Preview: {body_str[:200]}")
+                    logger.error(
+                        f"{self.log_prefix} (ChatImage) 响应中未找到可识别的图片数据. Preview: {body_str[:200]}"
+                    )
                     return False, "未能从回复中提取到图片信息"
                 else:
-                    logger.error(f"{self.log_prefix} (ChatImage) API 请求失败 (HTTP {response_status}). Body: {body_str[:200]}")
+                    logger.error(
+                        f"{self.log_prefix} (ChatImage) API 请求失败 (HTTP {response_status}). Body: {body_str[:200]}"
+                    )
                     return False, f"API 请求失败 (状态码 {response_status})"
 
         except Exception as e:
@@ -137,7 +136,7 @@ class OpenAIChatClient(BaseApiClient):
         fixed_size_enabled = model_config.get("fixed_size_enabled", False)
         default_size = model_config.get("default_size", "").strip()
         llm_original_size = size or model_config.get("_llm_original_size", "").strip() or None
-        
+
         config = {}
         aspect_ratio = None
         resolution = None
@@ -150,21 +149,23 @@ class OpenAIChatClient(BaseApiClient):
                 aspect_ratio = "1:1"
         else:
             # 固定尺寸模式解析
-            if default_size.startswith("-"): # 仅分辨率
+            if default_size.startswith("-"):  # 仅分辨率
                 resolution = default_size[1:].strip().upper()
                 aspect_ratio = "1:1"
-            elif "-" in default_size: # 宽高比-分辨率
+            elif "-" in default_size:  # 宽高比-分辨率
                 parts = default_size.split("-", 1)
                 aspect_ratio = parts[0].strip()
                 resolution = parts[1].strip().upper()
-            elif ":" in default_size: # 仅宽高比
+            elif ":" in default_size:  # 仅宽高比
                 aspect_ratio = default_size
-            elif "x" in default_size.lower(): # 像素转宽高比
+            elif "x" in default_size.lower():  # 像素转宽高比
                 aspect_ratio = pixel_size_to_gemini_aspect(default_size, self.log_prefix) or "1:1"
 
-        if aspect_ratio: config["image_aspect_ratio"] = aspect_ratio
-        if resolution: config["image_resolution"] = resolution
-        
+        if aspect_ratio:
+            config["image_aspect_ratio"] = aspect_ratio
+        if resolution:
+            config["image_resolution"] = resolution
+
         return config
 
     def _extract_image_from_content(self, content: Any) -> Optional[str]:
@@ -175,21 +176,24 @@ class OpenAIChatClient(BaseApiClient):
         # 如果是列表格式 (OpenRouter/Vision 风格)
         if isinstance(content, list):
             for item in content:
-                if not isinstance(item, dict): continue
+                if not isinstance(item, dict):
+                    continue
                 # 情况 A: 直接包含 image_url
                 if item.get("type") == "image_url":
                     url = item.get("image_url", {}).get("url")
-                    if url: return url
+                    if url:
+                        return url
                 # 情况 B: 包含文本，从文本中提取
                 if item.get("type") == "text":
                     res = self._extract_from_text(item.get("text", ""))
-                    if res: return res
+                    if res:
+                        return res
             return None
 
         # 如果是字符串 (通用 Chat 模式)
         if isinstance(content, str):
             return self._extract_from_text(content)
-            
+
         return None
 
     def _extract_from_text(self, text: str) -> Optional[str]:
@@ -231,15 +235,18 @@ class OpenAIChatClient(BaseApiClient):
         # 策略 4: 查找普通 URL
         url_match = re.search(r"https?://\S+", text)
         if url_match:
-            url = url_match.group(0).rstrip(').,> "\'')
+            url = url_match.group(0).rstrip(").,> \"'")
             return url
 
         return None
 
     def _is_valid_image_source(self, s: str) -> bool:
         """检查提取到的字符串是否像是合法的图片源"""
-        if not s: return False
-        if s.startswith("http"): return True
-        if s.startswith("data:image"): return True
+        if not s:
+            return False
+        if s.startswith("http"):
+            return True
+        if s.startswith("data:image"):
+            return True
         # Base64 特征检测
         return any(s.startswith(p) for p in ("/9j/", "iVBORw", "UklGR", "R0lGOD"))

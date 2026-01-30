@@ -1,28 +1,23 @@
-import asyncio
 import base64
-import json
 import urllib.request
 import traceback
-import re
-import os
-from functools import lru_cache
-from typing import Optional, Tuple, Dict, Any, Union, List
-from concurrent.futures import ThreadPoolExecutor
+from typing import Optional, Tuple, Any, List
 
 from src.common.logger import get_logger
 from maim_message import Seg
 
 logger = get_logger("pic_action")
 
+
 class ImageProcessor:
     """图片处理工具类"""
 
     # 图片格式检测模式
     _image_format_patterns = {
-        'jpeg': ['/9j/', '\xff\xd8\xff'],
-        'png': ['iVBORw', '\x89PNG'],
-        'webp': ['UklGR', 'RIFF'],
-        'gif': ['R0lGOD', 'GIF8']
+        "jpeg": ["/9j/", "\xff\xd8\xff"],
+        "png": ["iVBORw", "\x89PNG"],
+        "webp": ["UklGR", "RIFF"],
+        "gif": ["R0lGOD", "GIF8"],
     }
 
     def __init__(self, action_instance):
@@ -40,6 +35,7 @@ class ImageProcessor:
     def _mark_picid_failed(self, picid: str):
         """将picid标记为失败，使用LRU缓存机制"""
         import time
+
         self._failed_picids_cache[picid] = time.time()
 
         # LRU清理机制
@@ -52,11 +48,11 @@ class ImageProcessor:
 
     def _is_action_component(self) -> bool:
         """判断是否为Action组件"""
-        return hasattr(self.action, 'has_action_message')
+        return hasattr(self.action, "has_action_message")
 
     def _is_command_component(self) -> bool:
         """判断是否为Command组件"""
-        return hasattr(self.action, 'message')
+        return hasattr(self.action, "message")
 
     async def get_recent_image(self) -> Optional[str]:
         """获取最近的图片消息，支持多种组件类型"""
@@ -67,10 +63,10 @@ class ImageProcessor:
             message_segments = None
 
             # 兼容Action和Command组件
-            if hasattr(self.action, 'message') and hasattr(self.action.message, 'message_segment'):
+            if hasattr(self.action, "message") and hasattr(self.action.message, "message_segment"):
                 # Command组件
                 message_segments = self.action.message.message_segment
-            elif hasattr(self.action, 'action_message') and hasattr(self.action.action_message, 'message_segment'):
+            elif hasattr(self.action, "action_message") and hasattr(self.action.action_message, "message_segment"):
                 # Action组件
                 message_segments = self.action.action_message.message_segment
 
@@ -96,13 +92,13 @@ class ImageProcessor:
                         # 检查消息是否包含图片标记
                         is_picid = False
                         if isinstance(msg, dict):
-                            is_picid = msg.get('is_picid', False)
+                            is_picid = msg.get("is_picid", False)
                         else:
-                            is_picid = getattr(msg, 'is_picid', False)
+                            is_picid = getattr(msg, "is_picid", False)
 
                         if is_picid:
                             # 尝试从消息段中提取
-                            if hasattr(msg, 'message_segment') and msg.message_segment:
+                            if hasattr(msg, "message_segment") and msg.message_segment:
                                 emoji_base64_list = self.find_and_return_emoji_in_message(msg.message_segment)
                                 if emoji_base64_list:
                                     logger.info(f"{self.log_prefix} 从历史消息中找到图片")
@@ -120,32 +116,32 @@ class ImageProcessor:
 
     def _get_action_message(self) -> Optional[Any]:
         """获取action_message对象，兼容Action和Command"""
-        if hasattr(self.action, 'has_action_message') and self.action.has_action_message:
+        if hasattr(self.action, "has_action_message") and self.action.has_action_message:
             # Action组件
             return self.action.action_message
-        elif hasattr(self.action, 'message') and hasattr(self.action.message, 'message_recv'):
+        elif hasattr(self.action, "message") and hasattr(self.action.message, "message_recv"):
             # Command组件，使用message.message_recv作为action_message
             return self.action.message.message_recv
         return None
 
     def _get_chat_stream(self) -> Optional[Any]:
         """获取chat_stream对象，兼容Action和Command"""
-        if hasattr(self.action, 'chat_stream') and self.action.chat_stream:
+        if hasattr(self.action, "chat_stream") and self.action.chat_stream:
             # Action组件
             return self.action.chat_stream
-        elif hasattr(self.action, 'message') and hasattr(self.action.message, 'chat_stream'):
+        elif hasattr(self.action, "message") and hasattr(self.action.message, "chat_stream"):
             # Command组件
             return self.action.message.chat_stream
         return None
 
     def _get_chat_id(self) -> Optional[str]:
         """获取chat_id，兼容Action和Command"""
-        if hasattr(self.action, 'chat_id'):
+        if hasattr(self.action, "chat_id"):
             # Action组件
             return self.action.chat_id
 
         chat_stream = self._get_chat_stream()
-        if chat_stream and hasattr(chat_stream, 'stream_id'):
+        if chat_stream and hasattr(chat_stream, "stream_id"):
             return chat_stream.stream_id
         return None
 
@@ -165,7 +161,7 @@ class ImageProcessor:
 
             # 如果是字典类型，尝试提取内部数据
             if isinstance(data, dict):
-                for key in ['data', 'base64', 'content', 'image']:
+                for key in ["data", "base64", "content", "image"]:
                     if key in data and data[key]:
                         result = self._process_image_data(data[key])
                         if result:
@@ -174,7 +170,7 @@ class ImageProcessor:
             # 如果是字节类型，转换为base64
             if isinstance(data, bytes):
                 try:
-                    return base64.b64encode(data).decode('utf-8')
+                    return base64.b64encode(data).decode("utf-8")
                 except Exception as e:
                     logger.debug(f"{self.log_prefix} 字节数据转base64失败: {e}")
                     return None
@@ -192,15 +188,17 @@ class ImageProcessor:
                 return False
 
             # 检查是否包含base64图片前缀
-            if any(prefix in data[:50] for prefix in ['data:image/', '/9j/', 'iVBOR', 'UklGR', 'R0lGO']):
+            if any(prefix in data[:50] for prefix in ["data:image/", "/9j/", "iVBOR", "UklGR", "R0lGO"]):
                 return True
 
             # 检查base64格式特征
-            if len(data) % 4 == 0 and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in data[:100]):
+            if len(data) % 4 == 0 and all(
+                c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=" for c in data[:100]
+            ):
                 # 尝试解码前几个字符看是否是图片格式
                 try:
                     decoded_start = base64.b64decode(data[:100])
-                    for format_name, patterns in self._image_format_patterns.items():
+                    for _format_name, patterns in self._image_format_patterns.items():
                         for pattern in patterns:
                             if isinstance(pattern, str) and decoded_start.startswith(pattern.encode()):
                                 return True
@@ -225,15 +223,15 @@ class ImageProcessor:
     def download_and_encode_base64(self, image_url: str) -> Tuple[bool, str]:
         """下载图片或处理Base64数据URL"""
         logger.info(f"{self.log_prefix} (B64) 处理图片: {image_url[:50]}...")
-        
+
         try:
             # 检查是否为Base64数据URL
-            if image_url.startswith('data:image/'):
+            if image_url.startswith("data:image/"):
                 logger.info(f"{self.log_prefix} (B64) 检测到Base64数据URL")
-                
+
                 # 从数据URL中提取Base64部分
-                if ';base64,' in image_url:
-                    base64_data = image_url.split(';base64,', 1)[1]
+                if ";base64," in image_url:
+                    base64_data = image_url.split(";base64,", 1)[1]
                     logger.info(f"{self.log_prefix} (B64) 从数据URL提取Base64完成. 长度: {len(base64_data)}")
                     return True, base64_data
                 else:
@@ -247,13 +245,15 @@ class ImageProcessor:
                     if response.status == 200:
                         image_bytes = response.read()
                         base64_encoded_image = base64.b64encode(image_bytes).decode("utf-8")
-                        logger.info(f"{self.log_prefix} (B64) 图片下载编码完成. Base64长度: {len(base64_encoded_image)}")
+                        logger.info(
+                            f"{self.log_prefix} (B64) 图片下载编码完成. Base64长度: {len(base64_encoded_image)}"
+                        )
                         return True, base64_encoded_image
                     else:
                         error_msg = f"下载图片失败 (状态: {response.status})"
                         logger.error(f"{self.log_prefix} (B64) {error_msg} URL: {image_url[:30]}...")
                         return False, error_msg
-                        
+
         except Exception as e:
             logger.error(f"{self.log_prefix} (B64) 处理图片时错误: {e!r}", exc_info=True)
             traceback.print_exc()
@@ -269,14 +269,14 @@ class ImageProcessor:
             # 如果result是字典，尝试提取图片数据
             if isinstance(result, dict):
                 # 尝试多种可能的字段
-                for key in ['url', 'image', 'b64_json', 'data']:
+                for key in ["url", "image", "b64_json", "data"]:
                     if key in result and result[key]:
                         return result[key]
 
                 # 检查嵌套结构
-                if 'output' in result and isinstance(result['output'], dict):
-                    output = result['output']
-                    for key in ['image_url', 'images']:
+                if "output" in result and isinstance(result["output"], dict):
+                    output = result["output"]
+                    for key in ["image_url", "images"]:
                         if key in output:
                             data = output[key]
                             return data[0] if isinstance(data, list) and data else data
@@ -293,7 +293,7 @@ class ImageProcessor:
                 return False
 
             # 检查结构化的回复字段
-            reply_fields = ['reply_to', 'reply_message', 'quoted_message', 'reply']
+            reply_fields = ["reply_to", "reply_message", "quoted_message", "reply"]
             if isinstance(action_message, dict):
                 for field in reply_fields:
                     if field in action_message and action_message[field]:
@@ -308,20 +308,20 @@ class ImageProcessor:
                         return True
 
             # 检查文本内容中的回复格式
-            text_fields = ['processed_plain_text', 'display_message', 'raw_message', 'message_content']
+            text_fields = ["processed_plain_text", "display_message", "raw_message", "message_content"]
 
             if isinstance(action_message, dict):
                 for field in text_fields:
                     if field in action_message:
                         text = str(action_message[field])
-                        if text and '[回复' in text and ']' in text:
+                        if text and "[回复" in text and "]" in text:
                             logger.debug(f"{self.log_prefix} 在字段 {field} 中检测到回复消息格式")
                             return True
             else:
                 # DatabaseMessages 对象
                 for field in text_fields:
-                    text = str(getattr(action_message, field, ''))
-                    if text and '[回复' in text and ']' in text:
+                    text = str(getattr(action_message, field, ""))
+                    if text and "[回复" in text and "]" in text:
                         logger.debug(f"{self.log_prefix} 在属性 {field} 中检测到回复消息格式")
                         return True
 
@@ -340,11 +340,11 @@ class ImageProcessor:
             # 1. 处理reply_to字段
             reply_to = None
             if isinstance(action_message, dict):
-                if 'reply_to' in action_message and action_message['reply_to']:
-                    reply_to = action_message['reply_to']
+                if "reply_to" in action_message and action_message["reply_to"]:
+                    reply_to = action_message["reply_to"]
             else:
                 # DatabaseMessages 对象
-                reply_to = getattr(action_message, 'reply_to', None)
+                reply_to = getattr(action_message, "reply_to", None)
 
             if reply_to:
                 logger.info(f"{self.log_prefix} 发现reply_to字段: {reply_to}")
@@ -356,9 +356,9 @@ class ImageProcessor:
                     # 检查是否是图片消息
                     is_picid = False
                     if isinstance(reply_message, dict):
-                        is_picid = reply_message.get('is_picid', False)
+                        is_picid = reply_message.get("is_picid", False)
                     else:
-                        is_picid = getattr(reply_message, 'is_picid', False)
+                        is_picid = getattr(reply_message, "is_picid", False)
 
                     if is_picid:
                         image_data = await self._extract_image_from_message(reply_message)
@@ -382,12 +382,12 @@ class ImageProcessor:
                             is_picid = False
 
                             if isinstance(msg, dict):
-                                msg_id = msg.get('message_id') or msg.get('id')
-                                is_picid = msg.get('is_picid', False)
+                                msg_id = msg.get("message_id") or msg.get("id")
+                                is_picid = msg.get("is_picid", False)
                             else:
                                 # DatabaseMessages 对象
-                                msg_id = getattr(msg, 'message_id', None) or getattr(msg, 'id', None)
-                                is_picid = getattr(msg, 'is_picid', False)
+                                msg_id = getattr(msg, "message_id", None) or getattr(msg, "id", None)
+                                is_picid = getattr(msg, "is_picid", False)
 
                             if str(msg_id) == str(reply_to):
                                 logger.info(f"{self.log_prefix} 在历史消息中找到被回复的消息: {msg_id}")
@@ -402,7 +402,7 @@ class ImageProcessor:
                     logger.debug(f"{self.log_prefix} 通过reply_to查找消息失败: {e}")
 
             # 2. 尝试从回复相关字段直接获取
-            reply_fields = ['reply_message', 'quoted_message', 'reply']
+            reply_fields = ["reply_message", "quoted_message", "reply"]
             if isinstance(action_message, dict):
                 for field in reply_fields:
                     if field in action_message and action_message[field]:
@@ -422,12 +422,12 @@ class ImageProcessor:
                             return image_data
 
             # 3. 解析回复格式的文本消息，提取被回复消息的ID或信息
-            text_fields = ['processed_plain_text', 'display_message', 'raw_message', 'message_content']
+            text_fields = ["processed_plain_text", "display_message", "raw_message", "message_content"]
             if isinstance(action_message, dict):
                 for field in text_fields:
                     if field in action_message:
                         text = str(action_message[field])
-                        if '[回复' in text and '[图片]' in text:
+                        if "[回复" in text and "[图片]" in text:
                             logger.debug(f"{self.log_prefix} 在{field}中发现回复图片格式: {text[:100]}...")
 
                             # 尝试从文本中提取图片相关信息
@@ -438,8 +438,8 @@ class ImageProcessor:
             else:
                 # DatabaseMessages 对象
                 for field in text_fields:
-                    text = str(getattr(action_message, field, ''))
-                    if '[回复' in text and '[图片]' in text:
+                    text = str(getattr(action_message, field, ""))
+                    if "[回复" in text and "[图片]" in text:
                         logger.debug(f"{self.log_prefix} 在{field}属性中发现回复图片格式: {text[:100]}...")
 
                         # 尝试从文本中提取图片相关信息
@@ -465,17 +465,19 @@ class ImageProcessor:
                         is_picid = False
 
                         if isinstance(action_message, dict):
-                            current_msg_id = action_message.get('message_id') or action_message.get('id')
+                            current_msg_id = action_message.get("message_id") or action_message.get("id")
                         else:
-                            current_msg_id = getattr(action_message, 'message_id', None) or getattr(action_message, 'id', None)
+                            current_msg_id = getattr(action_message, "message_id", None) or getattr(
+                                action_message, "id", None
+                            )
 
                         if isinstance(msg, dict):
-                            msg_id = msg.get('message_id') or msg.get('id')
-                            is_picid = msg.get('is_picid', False)
+                            msg_id = msg.get("message_id") or msg.get("id")
+                            is_picid = msg.get("is_picid", False)
                         else:
                             # DatabaseMessages 对象
-                            msg_id = getattr(msg, 'message_id', None) or getattr(msg, 'id', None)
-                            is_picid = getattr(msg, 'is_picid', False)
+                            msg_id = getattr(msg, "message_id", None) or getattr(msg, "id", None)
+                            is_picid = getattr(msg, "is_picid", False)
 
                         if str(msg_id) == str(current_msg_id):
                             continue
@@ -484,7 +486,9 @@ class ImageProcessor:
                         if is_picid:
                             image_data = await self._extract_image_from_message(msg)
                             if image_data:
-                                logger.warning(f"{self.log_prefix} 使用备选方案：从最近历史消息中获取图片，可能不是被回复的原图")
+                                logger.warning(
+                                    f"{self.log_prefix} 使用备选方案：从最近历史消息中获取图片，可能不是被回复的原图"
+                                )
                                 return image_data
 
             except Exception as e:
@@ -509,13 +513,13 @@ class ImageProcessor:
                     logger.info(f"{self.log_prefix} 通过数据库查询到消息: {message_id}")
                     # 将消息记录转换为字典格式
                     message_dict = {
-                        'id': message_record.id,
-                        'message_id': message_record.id,
-                        'is_picid': getattr(message_record, 'is_picid', False),
-                        'processed_plain_text': getattr(message_record, 'processed_plain_text', ''),
-                        'display_message': getattr(message_record, 'display_message', ''),
-                        'additional_config': getattr(message_record, 'additional_config', ''),
-                        'raw_message': getattr(message_record, 'raw_message', ''),
+                        "id": message_record.id,
+                        "message_id": message_record.id,
+                        "is_picid": getattr(message_record, "is_picid", False),
+                        "processed_plain_text": getattr(message_record, "processed_plain_text", ""),
+                        "display_message": getattr(message_record, "display_message", ""),
+                        "additional_config": getattr(message_record, "additional_config", ""),
+                        "raw_message": getattr(message_record, "raw_message", ""),
                     }
                     return message_dict
             except Exception as e:
@@ -566,9 +570,9 @@ class ImageProcessor:
             # 如果消息有message_segment，直接从中提取
             message_segment = None
             if isinstance(message, dict):
-                message_segment = message.get('message_segment')
+                message_segment = message.get("message_segment")
             else:
-                message_segment = getattr(message, 'message_segment', None)
+                message_segment = getattr(message, "message_segment", None)
 
             if message_segment:
                 emoji_base64_list = self.find_and_return_emoji_in_message(message_segment)
@@ -591,13 +595,13 @@ class ImageProcessor:
             import re
 
             # 匹配data:image/格式的base64
-            data_url_pattern = r'data:image/[^;]+;base64,([A-Za-z0-9+/=]+)'
+            data_url_pattern = r"data:image/[^;]+;base64,([A-Za-z0-9+/=]+)"
             match = re.search(data_url_pattern, text)
             if match:
                 return match.group(1)
 
             # 匹配纯base64数据（长度较长的情况）
-            base64_pattern = r'([A-Za-z0-9+/]{100,}={0,2})'
+            base64_pattern = r"([A-Za-z0-9+/]{100,}={0,2})"
             matches = re.findall(base64_pattern, text)
             for match in matches:
                 if self._is_image_data(match):

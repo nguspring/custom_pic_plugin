@@ -1,4 +1,5 @@
 """魔搭社区API客户端"""
+
 import json
 import time
 import base64
@@ -19,14 +20,14 @@ class ModelscopeClient(BaseApiClient):
         model_config: Dict[str, Any],
         size: str,
         strength: Optional[float] = None,
-        input_image_base64: Optional[str] = None
+        input_image_base64: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """发送魔搭格式的HTTP请求生成图片"""
         try:
             # API配置
             api_key = model_config.get("api_key", "").replace("Bearer ", "")
             model_name = model_config.get("model", "MusePublic/489_ckpt_FLUX_1")
-            base_url = model_config.get("base_url", "https://api-inference.modelscope.cn").rstrip('/')
+            base_url = model_config.get("base_url", "https://api-inference.modelscope.cn").rstrip("/")
 
             # 验证API密钥
             if not api_key or api_key in ["xxxxxxxxxxxxxx", "YOUR_API_KEY_HERE"]:
@@ -37,7 +38,7 @@ class ModelscopeClient(BaseApiClient):
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "X-ModelScope-Async-Mode": "true"
+                "X-ModelScope-Async-Mode": "true",
             }
 
             logger.info(f"{self.log_prefix} (魔搭) 使用模型: {model_name}, API地址: {base_url}")
@@ -55,17 +56,10 @@ class ModelscopeClient(BaseApiClient):
             # 根据是否有输入图片，构建不同的请求参数
             if input_image_base64:
                 image_data_uri = self._prepare_image_data_uri(input_image_base64)
-                request_data = {
-                    "model": model_name,
-                    "prompt": full_prompt,
-                    "image_url": image_data_uri
-                }
+                request_data = {"model": model_name, "prompt": full_prompt, "image_url": image_data_uri}
                 logger.info(f"{self.log_prefix} (魔搭) 使用图生图模式")
             else:
-                request_data = {
-                    "model": model_name,
-                    "prompt": full_prompt
-                }
+                request_data = {"model": model_name, "prompt": full_prompt}
                 if negative_prompt:
                     request_data["negative_prompt"] = negative_prompt
                 if size:
@@ -84,15 +78,12 @@ class ModelscopeClient(BaseApiClient):
             request_kwargs = {
                 "url": endpoint,
                 "headers": headers,
-                "data": json.dumps(request_data, ensure_ascii=False).encode('utf-8'),
-                "timeout": proxy_config.get('timeout', 180) if proxy_config else 180
+                "data": json.dumps(request_data, ensure_ascii=False).encode("utf-8"),
+                "timeout": proxy_config.get("timeout", 180) if proxy_config else 180,
             }
 
             if proxy_config:
-                request_kwargs["proxies"] = {
-                    "http": proxy_config["http"],
-                    "https": proxy_config["https"]
-                }
+                request_kwargs["proxies"] = {"http": proxy_config["http"], "https": proxy_config["https"]}
 
             # 发送异步请求
             response = requests.post(**request_kwargs)
@@ -115,24 +106,17 @@ class ModelscopeClient(BaseApiClient):
             check_headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "X-ModelScope-Task-Type": "image_generation"
+                "X-ModelScope-Task-Type": "image_generation",
             }
 
             max_attempts = 18  # 最多检查3分钟
-            for attempt in range(max_attempts):
+            for _attempt in range(max_attempts):
                 try:
                     status_url = f"{base_url}/tasks/{task_id}"
-                    check_kwargs = {
-                        "url": status_url,
-                        "headers": check_headers,
-                        "timeout": 15
-                    }
+                    check_kwargs = {"url": status_url, "headers": check_headers, "timeout": 15}
 
                     if proxy_config:
-                        check_kwargs["proxies"] = {
-                            "http": proxy_config["http"],
-                            "https": proxy_config["https"]
-                        }
+                        check_kwargs["proxies"] = {"http": proxy_config["http"], "https": proxy_config["https"]}
 
                     check_response = requests.get(**check_kwargs)
 
@@ -153,16 +137,18 @@ class ModelscopeClient(BaseApiClient):
                                 if proxy_config:
                                     img_kwargs["proxies"] = {
                                         "http": proxy_config["http"],
-                                        "https": proxy_config["https"]
+                                        "https": proxy_config["https"],
                                     }
 
                                 img_response = requests.get(**img_kwargs)
                                 if img_response.status_code == 200:
-                                    image_base64 = base64.b64encode(img_response.content).decode('utf-8')
+                                    image_base64 = base64.b64encode(img_response.content).decode("utf-8")
                                     logger.info(f"{self.log_prefix} (魔搭) 图片生成成功")
                                     return True, image_base64
                                 else:
-                                    logger.error(f"{self.log_prefix} (魔搭) 图片下载失败: HTTP {img_response.status_code}")
+                                    logger.error(
+                                        f"{self.log_prefix} (魔搭) 图片下载失败: HTTP {img_response.status_code}"
+                                    )
                                     return False, "图片下载失败"
                             except Exception as e:
                                 logger.error(f"{self.log_prefix} (魔搭) 图片下载异常: {e}")
@@ -178,17 +164,17 @@ class ModelscopeClient(BaseApiClient):
 
                     elif task_status in ["PENDING", "RUNNING"]:
                         logger.info(f"{self.log_prefix} (魔搭) 任务状态: {task_status}，等待中...")
-                        time.sleep(10)# 每次等待 10 秒
+                        time.sleep(10)  # 每次等待 10 秒
                         continue
 
                     else:
                         logger.warning(f"{self.log_prefix} (魔搭) 未知任务状态: {task_status}")
-                        time.sleep(10)# 每次等待 10 秒
+                        time.sleep(10)  # 每次等待 10 秒
                         continue
 
                 except Exception as e:
                     logger.warning(f"{self.log_prefix} (魔搭) 状态检查异常: {e}")
-                    time.sleep(10)# 每次等待 10 秒
+                    time.sleep(10)  # 每次等待 10 秒
                     continue
 
             logger.error(f"{self.log_prefix} (魔搭) 任务超时，未能在规定时间内完成")

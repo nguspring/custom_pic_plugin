@@ -7,7 +7,11 @@
 import json
 import os
 import re
-from datetime import datetime
+import traceback
+import uuid
+import copy
+import hashlib
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from src.common.logger import get_logger
@@ -95,7 +99,7 @@ SCHEDULE_GENERATION_PROMPT = """今天是{date}，{day_of_week}，天气{weather
 
 变体示例（午餐时间段）：
 - v1: 夹菜吃饭，满足的表情
-- v2: 拿手机拍食物
+- v2: 闻一闻香味，期待地夹菜
 - v3: 吃完收拾，擦嘴巴
 
 ## 重要规则
@@ -131,60 +135,192 @@ class ScheduleGenerator:
     PROMPT_VERSION = "1.0"
 
     def __init__(self, plugin_instance: Any):
-        """
-        初始化生成器
+        """初始化生成器
 
         Args:
             plugin_instance: 插件实例，用于读取配置和调用 LLM API
         """
         self.plugin = plugin_instance
+        # Phase 0：用于 fallback 失败包记录（模型选择路径/最后一次调用信息）
+        self._last_llm_debug: Dict[str, Any] = {}
         logger.info("ScheduleGenerator 初始化完成")
 
     def _get_schedule_persona_block(self) -> str:
         """获取日程人设配置并构建人设提示块
-        
+
         根据用户配置的人设描述和生活习惯，构建注入到日程生成 prompt 中的人设块。
-        
+
         Returns:
             构建好的人设提示块字符串，如果未启用则返回空字符串
         """
         # 检查是否启用日程人设注入
         persona_enabled = self.plugin.get_config("auto_selfie.schedule_persona_enabled", True)
-        
+
         if not persona_enabled:
             logger.debug("日程人设注入未启用")
             return ""
-        
+
         # 获取人设配置
-        persona_text = self.plugin.get_config(
-            "auto_selfie.schedule_persona_text",
-            "是一个大二女大学生"
-        )
-        lifestyle = self.plugin.get_config(
-            "auto_selfie.schedule_lifestyle",
-            "作息规律，喜欢宅家但偶尔也会出门"
-        )
-        
+        persona_text = self.plugin.get_config("auto_selfie.schedule_persona_text", "是一个大二女大学生")
+        lifestyle = self.plugin.get_config("auto_selfie.schedule_lifestyle", "作息规律，喜欢宅家但偶尔也会出门")
+
         # 如果两个配置都为空，返回空字符串
         if not persona_text and not lifestyle:
             logger.debug("日程人设和生活习惯配置均为空，跳过注入")
             return ""
-        
+
         # 构建人设块
         persona_block_parts = []
-        
+
         if persona_text:
             persona_block_parts.append(f"她{persona_text}")
-        
+
         if lifestyle:
             persona_block_parts.append(f"生活习惯：{lifestyle}")
-        
+
         persona_block = "。".join(persona_block_parts)
-        
+
         logger.info(f"日程人设注入已启用，人设: {persona_block[:50]}...")
         logger.debug(f"日程人设块内容: {persona_block}")
-        
+
         return persona_block
+
+    def _get_schedule_persona_signature(self) -> str:
+        """生成当前日程人设的签名。
+
+        用于缓存失效：当人设/生活习惯/开关变化时，能够触发重新生成日程。
+
+        Returns:
+            可序列化、稳定的签名字符串
+        """
+        persona_enabled = self.plugin.get_config("auto_selfie.schedule_persona_enabled", True)
+        persona_text = self.plugin.get_config("auto_selfie.schedule_persona_text", "")
+        lifestyle = self.plugin.get_config("auto_selfie.schedule_lifestyle", "")
+
+        signature_obj = {
+            "prompt_version": self.PROMPT_VERSION,
+            "persona_enabled": bool(persona_enabled),
+            "persona_text": str(persona_text or ""),
+            "lifestyle": str(lifestyle or ""),
+        }
+        return json.dumps(signature_obj, ensure_ascii=False, sort_keys=True)
+
+    def _get_schedule_persona_constraints_block(self) -> str:
+        """根据人设文本补充约束，避免生成出戏日程（例如学生人设却像上班族）。"""
+        persona_enabled = self.plugin.get_config("auto_selfie.schedule_persona_enabled", True)
+        if not persona_enabled:
+            return ""
+
+        persona_text = str(self.plugin.get_config("auto_selfie.schedule_persona_text", "") or "")
+        lifestyle = str(self.plugin.get_config("auto_selfie.schedule_lifestyle", "") or "")
+        persona_text_l = persona_text.lower()
+
+        is_student = any(
+            k in persona_text_l for k in ["学生", "大学", "大一", "大二", "大三", "大四", "研究生", "高中", "初中"]
+        )  # 中英混合也能匹配
+        is_worker = any(k in persona_text_l for k in ["上班", "公司", "白领", "打工", "社畜", "职场", "同事", "办公室"])
+
+        if is_student and not is_worker:
+            return (
+                "\n【身份约束】她是学生/在校生，工作日主要是上课、自习、社团/运动与生活琐事。\n"
+                "- 不要安排‘上班/到公司/开会/写日报/同事聚餐’等职场情境。\n"
+                "- 地点优先：教室、图书馆、宿舍、食堂、校园、社团活动室。\n"
+                "- activity_type 优先使用 studying / commuting(去学校) / hobby / exercising / relaxing。\n"
+            )
+
+        if is_worker:
+            return "\n【身份约束】她是上班族/职场人士，工作日可安排通勤、办公室工作、会议与下班后生活。\n"
+
+        if lifestyle:
+            return f"\n【生活习惯提示】{lifestyle}\n"
+
+        return ""
+
+    def _load_recent_schedule_context(self, *, date: str, days: int = 7) -> str:
+        """加载最近 N 天的日程摘要，注入到生成 prompt，降低跨天重复。
+
+        Returns:
+            可直接拼接到 prompt 的中文上下文块（可能为空字符串）
+        """
+        try:
+            base_date = datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            return ""
+
+        plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        summaries: List[str] = []
+
+        for i in range(1, days + 1):
+            d = (base_date - timedelta(days=i)).strftime("%Y-%m-%d")
+            file_path = os.path.join(plugin_dir, f"daily_schedule_{d}.json")
+            schedule = DailySchedule.load_from_file(file_path)
+            if not schedule or not schedule.entries:
+                continue
+
+            # 摘要只保留“时间点 + 活动描述 + 地点”，避免泄露过多提示词
+            items: List[str] = []
+            for e in schedule.entries[:12]:
+                items.append(f"[{e.time_point}] {e.activity_description} @ {e.location}")
+            summaries.append(f"{d}: " + "；".join(items))
+
+        if not summaries:
+            return ""
+
+        return (
+            "\n【过去7天回顾（用于去重）】\n"
+            "下面是最近几天的日程摘要，请你生成今天的日程时尽量避免高度相似的活动组合/重复场景：\n"
+            + "\n".join(summaries)
+            + "\n"
+        )
+
+    def _save_schedule_fallback_failure_package(
+        self,
+        *,
+        date: str,
+        fallback_reason: str,
+        prompt: str,
+        response: Optional[str],
+        exception_stack: str,
+    ) -> str:
+        """保存日程 fallback 失败包。
+
+        失败包内容用于验收与排查：prompt/response/异常堆栈/模型选择路径。
+
+        Returns:
+            失败包文件名（相对于插件根目录的路径）
+        """
+        plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        package_dir = os.path.join(plugin_dir, "fallback_packages", "schedule")
+        os.makedirs(package_dir, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        short_id = uuid.uuid4().hex[:8]
+        filename = f"schedule_fallback_{date}_{timestamp}_{short_id}.json"
+        file_path = os.path.join(package_dir, filename)
+
+        payload: Dict[str, Any] = {
+            "type": "daily_schedule_fallback",
+            "date": date,
+            "fallback_reason": fallback_reason,
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "prompt": prompt,
+            "response": response,
+            "exception_stack": exception_stack,
+            "model_selection_path": self._last_llm_debug.get("selection_path", []),
+            "debug": {
+                "schedule_generator_model": self.plugin.get_config("auto_selfie.schedule_generator_model", ""),
+                "schedule_model_id_legacy": self.plugin.get_config("auto_selfie.schedule_model_id", ""),
+                "schedule_persona_enabled": self.plugin.get_config("auto_selfie.schedule_persona_enabled", True),
+                "schedule_persona_text": self.plugin.get_config("auto_selfie.schedule_persona_text", ""),
+                "schedule_lifestyle": self.plugin.get_config("auto_selfie.schedule_lifestyle", ""),
+            },
+        }
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        # 返回相对路径，方便写回日程文件
+        return os.path.join("fallback_packages", "schedule", filename)
 
     async def generate_daily_schedule(
         self,
@@ -207,6 +343,11 @@ class ScheduleGenerator:
         """
         logger.info(f"开始生成日程: {date}, 时间点数量: {len(schedule_times)}")
 
+        # Phase 0：用于失败包记录
+        prompt: str = ""
+        response: Optional[str] = None
+        day_of_week: str = "未知"
+
         try:
             # 计算星期几
             date_obj = datetime.strptime(date, "%Y-%m-%d")
@@ -218,6 +359,8 @@ class ScheduleGenerator:
                 is_holiday = True
                 logger.debug("周末自动设置为假期模式")
 
+            persona_signature = self._get_schedule_persona_signature()
+
             # 构建 Prompt
             prompt = self._build_generation_prompt(
                 schedule_times=schedule_times,
@@ -227,6 +370,9 @@ class ScheduleGenerator:
                 date=date,
             )
 
+            # Phase 2：跨天去重（保留最近7天摘要回灌到 prompt）
+            prompt = prompt + self._load_recent_schedule_context(date=date, days=7)
+
             logger.debug(f"生成的 Prompt 长度: {len(prompt)}")
 
             # 调用 LLM
@@ -234,12 +380,23 @@ class ScheduleGenerator:
 
             if not response:
                 logger.warning("LLM 返回空响应，使用回退方案")
+                fallback_reason = "llm_empty_response"
+                failure_package = self._save_schedule_fallback_failure_package(
+                    date=date,
+                    fallback_reason=fallback_reason,
+                    prompt=prompt,
+                    response=response,
+                    exception_stack="",
+                )
                 return self._generate_fallback_schedule(
                     date=date,
                     day_of_week=day_of_week,
                     is_holiday=is_holiday,
                     weather=weather,
                     schedule_times=schedule_times,
+                    fallback_reason=fallback_reason,
+                    failure_package=failure_package,
+                    persona_signature=persona_signature,
                 )
 
             # 解析响应
@@ -252,31 +409,54 @@ class ScheduleGenerator:
             )
 
             if schedule and self._validate_schedule(schedule):
-                logger.info(
-                    f"日程生成成功，共 {len(schedule.entries)} 个条目"
-                )
+                # 写入人设签名，支持缓存失效
+                schedule.character_persona = persona_signature
+                logger.info(f"日程生成成功，共 {len(schedule.entries)} 个条目")
                 return schedule
-            else:
-                logger.warning("日程解析或验证失败，使用回退方案")
-                return self._generate_fallback_schedule(
-                    date=date,
-                    day_of_week=day_of_week,
-                    is_holiday=is_holiday,
-                    weather=weather,
-                    schedule_times=schedule_times,
-                )
 
-        except Exception as e:
-            logger.error(f"生成日程异常: {e}")
-            import traceback
-
-            logger.debug(f"异常堆栈: {traceback.format_exc()}")
+            # 解析或验证失败 -> fallback
+            fallback_reason = "parse_failed" if schedule is None else "validation_failed"
+            logger.warning(f"日程解析或验证失败({fallback_reason})，使用回退方案")
+            failure_package = self._save_schedule_fallback_failure_package(
+                date=date,
+                fallback_reason=fallback_reason,
+                prompt=prompt,
+                response=response,
+                exception_stack="",
+            )
             return self._generate_fallback_schedule(
                 date=date,
-                day_of_week=day_of_week if "day_of_week" in dir() else "未知",
+                day_of_week=day_of_week,
                 is_holiday=is_holiday,
                 weather=weather,
                 schedule_times=schedule_times,
+                fallback_reason=fallback_reason,
+                failure_package=failure_package,
+                persona_signature=persona_signature,
+            )
+
+        except Exception as e:
+            logger.error(f"生成日程异常: {e}")
+            exception_stack = traceback.format_exc()
+            logger.debug(f"异常堆栈: {exception_stack}")
+
+            fallback_reason = "exception"
+            failure_package = self._save_schedule_fallback_failure_package(
+                date=date,
+                fallback_reason=fallback_reason,
+                prompt=prompt,
+                response=response,
+                exception_stack=exception_stack,
+            )
+            return self._generate_fallback_schedule(
+                date=date,
+                day_of_week=day_of_week,
+                is_holiday=is_holiday,
+                weather=weather,
+                schedule_times=schedule_times,
+                fallback_reason=fallback_reason,
+                failure_package=failure_package,
+                persona_signature=persona_signature,
             )
 
     def _build_generation_prompt(
@@ -300,15 +480,11 @@ class ScheduleGenerator:
         Returns:
             完整的 Prompt 字符串
         """
-        holiday_note = (
-            "今天是假期/周末，可以安排更轻松的活动。"
-            if is_holiday
-            else "今天是工作日。"
-        )
+        holiday_note = "今天是假期/周末，可以安排更轻松的活动。" if is_holiday else "今天是工作日。"
 
         # 获取人设块
         persona_block = self._get_schedule_persona_block()
-        
+
         # 构建基础 prompt
         prompt = SCHEDULE_GENERATION_PROMPT.format(
             date=date,
@@ -317,16 +493,21 @@ class ScheduleGenerator:
             holiday_note=holiday_note,
             schedule_times=", ".join(schedule_times),
         )
-        
+
         # 如果有人设，在 prompt 中注入人设信息
         # 将 "请为一个可爱的女孩" 替换为包含人设的描述
         if persona_block:
-            persona_insert = f"请为一个可爱的女孩规划今天的以下时间点的活动。{persona_block}。\n\n每个时间点需要包含完整的场景描述"
+            constraints_block = self._get_schedule_persona_constraints_block()
+            persona_insert = (
+                f"请为一个可爱的女孩规划今天的以下时间点的活动。{persona_block}。\n"
+                f"{constraints_block}\n"
+                "每个时间点需要包含完整的场景描述"
+            )
             prompt = prompt.replace(
                 "请为一个可爱的女孩规划今天的以下时间点的活动，每个时间点需要包含完整的场景描述",
-                persona_insert
+                persona_insert,
             )
-            logger.debug(f"日程生成 Prompt 已注入人设信息")
+            logger.debug("日程生成 Prompt 已注入人设信息")
 
         return prompt
 
@@ -349,44 +530,57 @@ class ScheduleGenerator:
 
         logger.debug(f"调用 LLM，prompt 长度: {len(prompt)}")
 
+        selection_path: List[Dict[str, Any]] = []
+
+        def record(step: str, **kwargs: Any) -> None:
+            selection_path.append({"step": step, **kwargs})
+
         try:
             # 获取用户配置的自定义模型 ID
-            custom_model_id = self.plugin.get_config(
-                "auto_selfie.schedule_model_id", ""
-            )
+            # 优先使用 config_schema 中的 schedule_generator_model（旧键名 schedule_model_id 仅作为兼容）
+            custom_model_id = str(self.plugin.get_config("auto_selfie.schedule_generator_model", "") or "").strip()
+            if not custom_model_id:
+                custom_model_id = str(self.plugin.get_config("auto_selfie.schedule_model_id", "") or "").strip()
+
             logger.debug(f"配置的自定义模型ID: '{custom_model_id}'")
+            record("config.custom_model_id", custom_model_id=custom_model_id)
 
             # 如果用户配置了自定义模型，尝试使用
             if custom_model_id:
                 available_models = llm_api.get_available_models()
+                record("llm_api.available_models", count=len(available_models), keys=list(available_models.keys()))
                 if custom_model_id in available_models:
                     model_config = available_models[custom_model_id]
                     logger.info(f"使用用户配置的模型: {custom_model_id}")
+                    record("llm_api.use_custom_model", model_id=custom_model_id)
 
-                    success, content, reasoning, model_name = (
-                        await llm_api.generate_with_model(
-                            prompt=prompt,
-                            model_config=model_config,
-                            request_type="plugin.auto_selfie.schedule_generate",
-                            temperature=0.7,
-                            max_tokens=4000,
-                        )
+                    success, content, reasoning, model_name = await llm_api.generate_with_model(
+                        prompt=prompt,
+                        model_config=model_config,
+                        request_type="plugin.auto_selfie.schedule_generate",
+                        temperature=0.7,
+                        max_tokens=4000,
+                    )
+                    record(
+                        "llm_api.custom_model.result",
+                        success=success,
+                        model_name=model_name,
+                        content_len=len(content) if content else 0,
                     )
 
                     if success and content:
                         logger.debug(f"LLM 生成成功，使用模型: {model_name}")
+                        self._last_llm_debug = {"selection_path": selection_path}
                         return content
-                    else:
-                        logger.warning(f"LLM 生成失败: {content}")
+
+                    logger.warning(f"LLM 生成失败: {content}")
                 else:
-                    logger.warning(
-                        f"配置的模型 '{custom_model_id}' 不存在，"
-                        "回退到默认模型"
-                    )
+                    logger.warning(f"配置的模型 '{custom_model_id}' 不存在，回退到默认模型")
+                    record("llm_api.custom_model_not_found", model_id=custom_model_id)
 
             # 默认使用 MaiBot 的 planner 模型（规划模型）
-            # 因为日程生成需要规划能力
             logger.debug("尝试使用 MaiBot planner 模型")
+            record("maibot.planner.try")
             try:
                 planner_request = LLMRequest(
                     model_set=maibot_model_config.model_task_config.planner,
@@ -399,63 +593,84 @@ class ScheduleGenerator:
                     max_tokens=4000,
                 )
 
+                record("maibot.planner.result", content_len=len(content) if content else 0)
                 if content:
                     logger.debug("LLM 生成成功，使用 MaiBot planner 模型")
+                    self._last_llm_debug = {"selection_path": selection_path}
                     return content
-                else:
-                    logger.warning("planner 模型生成失败，返回空内容")
+
+                logger.warning("planner 模型生成失败，返回空内容")
 
             except Exception as e:
                 logger.warning(f"使用 planner 模型失败: {e}，尝试 replyer 模型")
+                record(
+                    "maibot.planner.exception",
+                    error=str(e),
+                    stack=traceback.format_exc(),
+                )
 
-                # 尝试使用 replyer 作为备用
-                try:
-                    replyer_request = LLMRequest(
-                        model_set=maibot_model_config.model_task_config.replyer,
-                        request_type="plugin.auto_selfie.schedule_generate",
-                    )
+            # 尝试使用 replyer 作为备用
+            record("maibot.replyer.try")
+            try:
+                replyer_request = LLMRequest(
+                    model_set=maibot_model_config.model_task_config.replyer,
+                    request_type="plugin.auto_selfie.schedule_generate",
+                )
 
-                    content, reasoning = (
-                        await replyer_request.generate_response_async(
-                            prompt,
-                            temperature=0.7,
-                            max_tokens=4000,
-                        )
-                    )
+                content, reasoning = await replyer_request.generate_response_async(
+                    prompt,
+                    temperature=0.7,
+                    max_tokens=4000,
+                )
 
-                    if content:
-                        logger.debug("LLM 生成成功，使用 MaiBot replyer 模型")
-                        return content
+                record("maibot.replyer.result", content_len=len(content) if content else 0)
+                if content:
+                    logger.debug("LLM 生成成功，使用 MaiBot replyer 模型")
+                    self._last_llm_debug = {"selection_path": selection_path}
+                    return content
 
-                except Exception as e2:
-                    logger.warning(f"使用 replyer 模型也失败: {e2}")
+            except Exception as e2:
+                logger.warning(f"使用 replyer 模型也失败: {e2}")
+                record(
+                    "maibot.replyer.exception",
+                    error=str(e2),
+                    stack=traceback.format_exc(),
+                )
 
-                # 最后尝试使用 llm_api 的第一个可用模型
-                available_models = llm_api.get_available_models()
-                if available_models:
-                    first_key = next(iter(available_models))
-                    model_config = available_models[first_key]
-                    logger.debug(f"使用备用模型: {first_key}")
+            # 最后尝试使用 llm_api 的第一个可用模型
+            available_models = llm_api.get_available_models()
+            record("llm_api.fallback_available_models", count=len(available_models), keys=list(available_models.keys()))
+            if available_models:
+                first_key = next(iter(available_models))
+                model_config = available_models[first_key]
+                logger.debug(f"使用备用模型: {first_key}")
+                record("llm_api.use_first_available", model_id=first_key)
 
-                    success, content, reasoning, model_name = (
-                        await llm_api.generate_with_model(
-                            prompt=prompt,
-                            model_config=model_config,
-                            request_type="plugin.auto_selfie.schedule_generate",
-                            temperature=0.7,
-                            max_tokens=4000,
-                        )
-                    )
+                success, content, reasoning, model_name = await llm_api.generate_with_model(
+                    prompt=prompt,
+                    model_config=model_config,
+                    request_type="plugin.auto_selfie.schedule_generate",
+                    temperature=0.7,
+                    max_tokens=4000,
+                )
+                record(
+                    "llm_api.first_available.result",
+                    success=success,
+                    model_name=model_name,
+                    content_len=len(content) if content else 0,
+                )
 
-                    if success and content:
-                        return content
+                if success and content:
+                    self._last_llm_debug = {"selection_path": selection_path}
+                    return content
 
+            self._last_llm_debug = {"selection_path": selection_path}
             return None
 
         except Exception as e:
             logger.error(f"LLM 调用异常: {e}")
-            import traceback
-
+            record("_call_llm.exception", error=str(e), stack=traceback.format_exc())
+            self._last_llm_debug = {"selection_path": selection_path}
             logger.debug(f"异常堆栈: {traceback.format_exc()}")
             return None
 
@@ -549,9 +764,7 @@ class ScheduleGenerator:
             return array_match.group()
 
         # 尝试匹配 markdown 代码块中的 JSON
-        code_block_match = re.search(
-            r"```(?:json)?\s*(\[\s*\{[\s\S]*?\}\s*\])\s*```", text
-        )
+        code_block_match = re.search(r"```(?:json)?\s*(\[\s*\{[\s\S]*?\}\s*\])\s*```", text)
         if code_block_match:
             return code_block_match.group(1)
 
@@ -668,6 +881,9 @@ class ScheduleGenerator:
         is_holiday: bool,
         weather: str,
         schedule_times: List[str],
+        fallback_reason: Optional[str] = None,
+        failure_package: Optional[str] = None,
+        persona_signature: str = "",
     ) -> DailySchedule:
         """
         生成回退日程（当 LLM 调用失败时使用）
@@ -691,13 +907,18 @@ class ScheduleGenerator:
             day_of_week=day_of_week,
             is_holiday=is_holiday,
             weather=weather,
-            character_persona="",  # 不再使用角色人设
+            character_persona=persona_signature,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             model_used="fallback",
+            fallback_reason=fallback_reason,
+            fallback_failure_package=failure_package,
         )
 
         # 预定义的场景模板（带变体）
-        fallback_scenes = self._get_fallback_scenes(is_holiday)
+        fallback_scenes = self._get_fallback_scenes(is_holiday=is_holiday, date=date)
+
+        # 兜底修正：回退模板也必须遵守禁用规则（禁止 phone 等）
+        fallback_scenes = self._sanitize_fallback_scenes(fallback_scenes)
 
         # 为每个时间点分配场景
         for i, time_point in enumerate(schedule_times):
@@ -705,20 +926,17 @@ class ScheduleGenerator:
             scene = fallback_scenes[scene_index]
 
             # 解析场景变体
-            scene_variations = []
+            scene_variations: List[SceneVariation] = []
             if "scene_variations" in scene:
                 for var_data in scene["scene_variations"]:
-                    variation = SceneVariation(
-                        variation_id=var_data.get("variation_id", f"v{len(scene_variations)+1}"),
-                        description=var_data.get("description", ""),
-                        pose=var_data.get("pose", ""),
-                        body_action=var_data.get("body_action", ""),
-                        hand_action=var_data.get("hand_action", ""),
-                        expression=var_data.get("expression", ""),
-                        mood=var_data.get("mood", ""),
-                        caption_theme=var_data.get("caption_theme", ""),
-                    )
-                    scene_variations.append(variation)
+                    if not isinstance(var_data, dict):
+                        continue
+
+                    nv = dict(var_data)
+                    if not nv.get("variation_id"):
+                        nv["variation_id"] = f"v{len(scene_variations) + 1}"
+
+                    scene_variations.append(SceneVariation.from_dict(nv))
 
             entry = ScheduleEntry(
                 time_point=time_point,
@@ -748,22 +966,80 @@ class ScheduleGenerator:
         logger.info(f"回退日程生成完成，共 {len(schedule.entries)} 个条目（每条目含变体）")
         return schedule
 
-    def _get_fallback_scenes(self, is_holiday: bool) -> List[Dict[str, Any]]:
-        """
-        获取回退场景模板（带场景变体）
+    def _sanitize_fallback_scenes(self, scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """清理回退模板中的禁用词，避免出现 phone/smartphone 等。
 
-        共9个模板，完美适配默认的9个时间点：
+        说明：LLM prompt 已禁止，但回退模板是硬编码，必须自检。
+        """
+        banned_patterns = [
+            re.compile(r"\bsmartphone\b", re.IGNORECASE),
+            re.compile(r"\bphone\b", re.IGNORECASE),
+            re.compile(r"\bmobile\b", re.IGNORECASE),
+            re.compile(r"\bdevice\b", re.IGNORECASE),
+        ]
+
+        def sanitize_text(text: str) -> str:
+            cleaned = text
+            for pat in banned_patterns:
+                cleaned = pat.sub("", cleaned)
+            cleaned = re.sub(r",\s*,+", ", ", cleaned)
+            cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,")
+            return cleaned
+
+        def sanitize_scene(scene: Dict[str, Any]) -> Dict[str, Any]:
+            new_scene = dict(scene)
+            for key in ["pose", "body_action", "hand_action", "location_prompt", "environment", "activity_detail"]:
+                if key in new_scene and isinstance(new_scene[key], str):
+                    new_scene[key] = sanitize_text(new_scene[key])
+
+            variations = new_scene.get("scene_variations")
+            if isinstance(variations, list):
+                sanitized_vars: List[Dict[str, Any]] = []
+                for v in variations:
+                    if not isinstance(v, dict):
+                        continue
+                    nv = dict(v)
+                    for key in ["pose", "body_action", "hand_action", "description"]:
+                        if key in nv and isinstance(nv[key], str):
+                            nv[key] = sanitize_text(nv[key])
+                    sanitized_vars.append(nv)
+                new_scene["scene_variations"] = sanitized_vars
+
+            return new_scene
+
+        return [sanitize_scene(s) for s in scenes if isinstance(s, dict)]
+
+    def _get_fallback_scenes(self, *, is_holiday: bool, date: str) -> List[Dict[str, Any]]:
+        """获取回退场景模板（带场景变体，Phase 2：多套模板）。
+
+        共9个模板，适配默认的9个时间点：
         07:30, 09:00, 10:30, 12:00, 14:00, 16:00, 18:00, 20:00, 22:00
+
+        Phase 2：fallback 模板“多套”实现方式：
+        - 先构建一套 base 模板（原有硬编码）
+        - 再基于 base 生成一套 variant（学生/上班族/假期户外等差异化）
+        - 使用 date + persona 作为 key 做确定性选择（避免同一天多次生成时随机跳变）
 
         Args:
             is_holiday: 是否假期
+            date: 日期 YYYY-MM-DD
 
         Returns:
             场景模板列表，每个场景包含 2-3 个变体
         """
+        persona_text = str(self.plugin.get_config("auto_selfie.schedule_persona_text", "") or "")
+        persona_text_l = persona_text.lower()
+        is_student = any(
+            k in persona_text_l for k in ["学生", "大学", "大一", "大二", "大三", "大四", "研究生", "高中", "初中"]
+        )
+        is_worker = any(k in persona_text_l for k in ["上班", "公司", "白领", "打工", "社畜", "职场", "同事", "办公室"])
+        persona_mode = "student" if (is_student and not is_worker) else ("worker" if is_worker else "generic")
+
+        base: List[Dict[str, Any]]
+
         if is_holiday:
             # 假期/周末场景 - 共9个，对应9个时间点
-            return [
+            base = [
                 # ========== 1. 07:30 - 懒觉醒来 ==========
                 {
                     "activity_type": ActivityType.WAKING_UP,
@@ -1145,7 +1421,7 @@ class ScheduleGenerator:
             ]
         else:
             # 工作日场景 - 共9个，对应9个时间点
-            return [
+            base = [
                 # ========== 1. 07:30 - 起床 ==========
                 {
                     "activity_type": ActivityType.WAKING_UP,
@@ -1169,9 +1445,9 @@ class ScheduleGenerator:
                         {
                             "variation_id": "v1",
                             "description": "关闹钟",
-                            "pose": "reaching for phone on nightstand",
+                            "pose": "reaching toward nightstand, turning off alarm",
                             "body_action": "still lying in bed",
-                            "hand_action": "tapping phone to turn off alarm",
+                            "hand_action": "tapping alarm button",
                             "expression": "annoyed, sleepy",
                             "mood": "grumpy",
                             "caption_theme": "又是被闹钟叫醒的一天",
@@ -1526,6 +1802,305 @@ class ScheduleGenerator:
                 },
             ]
 
+        # Phase 2：fallback 模板多套 - 生成变体模板集
+        variant = copy.deepcopy(base)
+
+        if is_holiday:
+            # 假期变体：更偏户外/出门的周末感（避免全宅家重复）
+            try:
+                # 14:00 - 下午出门散步
+                if len(variant) > 4:
+                    variant[4].update(
+                        {
+                            "activity_type": ActivityType.EXERCISING,
+                            "activity_description": "下午去公园散步",
+                            "activity_detail": "天气不错，去附近公园走走放松一下",
+                            "location": "公园",
+                            "location_prompt": "city park, trees, afternoon, casual walk",
+                            "pose": "walking on path, relaxed",
+                            "body_action": "taking a walk, enjoying fresh air",
+                            "hand_action": "hands behind back",
+                            "expression": "relaxed smile",
+                            "mood": "relaxed",
+                            "outfit": "comfortable casual outfit",
+                            "environment": "park path, greenery",
+                            "lighting": "soft afternoon sunlight",
+                            "caption_type": "share",
+                            "suggested_caption_theme": "周末去公园透气",
+                            "scene_variations": [
+                                {
+                                    "variation_id": "v1",
+                                    "description": "闻花停一下",
+                                    "pose": "standing near flowers, slight lean",
+                                    "body_action": "smelling flowers",
+                                    "hand_action": "hand near flowers",
+                                    "expression": "gentle smile",
+                                    "mood": "peaceful",
+                                    "caption_theme": "花香好舒服",
+                                },
+                                {
+                                    "variation_id": "v2",
+                                    "description": "坐长椅休息",
+                                    "pose": "sitting on bench, relaxed",
+                                    "body_action": "resting, gazing into distance",
+                                    "hand_action": "hands resting on lap",
+                                    "expression": "dreamy",
+                                    "mood": "relaxed",
+                                    "caption_theme": "发呆也很治愈",
+                                },
+                            ],
+                        }
+                    )
+
+                # 16:00 - 咖啡馆下午茶
+                if len(variant) > 5:
+                    variant[5].update(
+                        {
+                            "activity_type": ActivityType.HOBBY,
+                            "activity_description": "咖啡馆下午茶",
+                            "activity_detail": "找了家安静的咖啡馆坐坐",
+                            "location": "咖啡馆",
+                            "location_prompt": "cozy cafe, afternoon tea, warm atmosphere",
+                            "pose": "sitting at table, relaxed",
+                            "body_action": "enjoying coffee time",
+                            "hand_action": "holding coffee cup",
+                            "expression": "content, soft smile",
+                            "mood": "peaceful",
+                            "outfit": "casual dress",
+                            "environment": "cafe interior, soft background",
+                            "lighting": "warm indoor light",
+                            "caption_type": "share",
+                            "suggested_caption_theme": "周末咖啡时间",
+                            "scene_variations": [
+                                {
+                                    "variation_id": "v1",
+                                    "description": "搅拌咖啡",
+                                    "pose": "leaning forward slightly",
+                                    "body_action": "stirring coffee",
+                                    "hand_action": "stirring with spoon",
+                                    "expression": "focused, small smile",
+                                    "mood": "relaxed",
+                                    "caption_theme": "这杯香香的",
+                                },
+                                {
+                                    "variation_id": "v2",
+                                    "description": "看窗外发呆",
+                                    "pose": "sitting by window",
+                                    "body_action": "gazing outside",
+                                    "hand_action": "hand supporting chin",
+                                    "expression": "thoughtful",
+                                    "mood": "contemplative",
+                                    "caption_theme": "周末的时间过得好快",
+                                },
+                            ],
+                        }
+                    )
+
+            except Exception:
+                # 变体生成失败不影响 base 回退
+                pass
+
+        else:
+            # 工作日变体：根据人设选择“学生日常”或“上班族另一套”
+            try:
+                if persona_mode == "student":
+                    # 09:00 - 去学校
+                    if len(variant) > 1:
+                        variant[1].update(
+                            {
+                                "activity_type": ActivityType.COMMUTING,
+                                "activity_description": "去学校上课",
+                                "activity_detail": "背着包赶去学校，怕迟到",
+                                "location": "地铁/公交",
+                                "location_prompt": "subway, morning commute, backpack, campus vibe",
+                                "pose": "standing, holding handrail",
+                                "body_action": "commuting to campus",
+                                "hand_action": "holding handrail",
+                                "expression": "sleepy but determined",
+                                "mood": "neutral",
+                                "outfit": "casual student outfit, hoodie",
+                                "accessories": "backpack",
+                                "caption_type": "narrative",
+                                "suggested_caption_theme": "早八赶路",
+                            }
+                        )
+
+                    # 10:30 - 上课
+                    if len(variant) > 2:
+                        variant[2].update(
+                            {
+                                "activity_type": ActivityType.STUDYING,
+                                "activity_description": "上午上课",
+                                "activity_detail": "坐在教室里认真听课记笔记",
+                                "location": "教室",
+                                "location_prompt": "classroom, lecture, daylight",
+                                "pose": "sitting at desk",
+                                "body_action": "listening to lecture",
+                                "hand_action": "taking notes",
+                                "expression": "attentive",
+                                "mood": "focused",
+                                "outfit": "casual student outfit",
+                                "environment": "classroom, desks",
+                                "lighting": "natural daylight",
+                                "caption_type": "narrative",
+                                "suggested_caption_theme": "课堂日常",
+                                "scene_variations": [
+                                    {
+                                        "variation_id": "v1",
+                                        "description": "认真记笔记",
+                                        "pose": "leaning forward",
+                                        "body_action": "writing notes",
+                                        "hand_action": "holding pen",
+                                        "expression": "concentrated",
+                                        "mood": "focused",
+                                        "caption_theme": "记不完的笔记",
+                                    },
+                                    {
+                                        "variation_id": "v2",
+                                        "description": "听课发呆一下",
+                                        "pose": "sitting upright",
+                                        "body_action": "zoning out briefly",
+                                        "hand_action": "hand supporting cheek",
+                                        "expression": "blank stare",
+                                        "mood": "tired",
+                                        "caption_theme": "需要补眠",
+                                    },
+                                ],
+                            }
+                        )
+
+                    # 12:00 - 食堂午餐
+                    if len(variant) > 3:
+                        variant[3].update(
+                            {
+                                "activity_type": ActivityType.EATING,
+                                "activity_description": "食堂午餐",
+                                "activity_detail": "下课去食堂吃饭",
+                                "location": "学校食堂",
+                                "location_prompt": "school cafeteria, lunch time",
+                                "pose": "sitting at table",
+                                "body_action": "having lunch",
+                                "hand_action": "holding chopsticks",
+                                "expression": "happy",
+                                "mood": "happy",
+                                "outfit": "casual student outfit",
+                                "caption_type": "share",
+                                "suggested_caption_theme": "今天食堂吃啥",
+                            }
+                        )
+
+                    # 14:00 - 图书馆自习
+                    if len(variant) > 4:
+                        variant[4].update(
+                            {
+                                "activity_type": ActivityType.STUDYING,
+                                "activity_description": "图书馆自习",
+                                "activity_detail": "下午去图书馆坐一会儿，写作业/复习",
+                                "location": "图书馆",
+                                "location_prompt": "library, study desk, quiet atmosphere",
+                                "pose": "sitting at desk",
+                                "body_action": "studying, reading",
+                                "hand_action": "holding pen",
+                                "expression": "focused",
+                                "mood": "focused",
+                                "outfit": "casual student outfit",
+                                "caption_type": "monologue",
+                                "suggested_caption_theme": "自习加油",
+                            }
+                        )
+
+                    # 16:00 - 小憩/咖啡补能
+                    if len(variant) > 5:
+                        variant[5].update(
+                            {
+                                "activity_type": ActivityType.RELAXING,
+                                "activity_description": "课间休息",
+                                "activity_detail": "学习久了去喝点东西歇一下",
+                                "location": "校园咖啡角",
+                                "location_prompt": "campus cafe corner, afternoon, cozy",
+                                "pose": "sitting, relaxed",
+                                "body_action": "taking a short break",
+                                "hand_action": "holding drink",
+                                "expression": "relieved",
+                                "mood": "relaxed",
+                                "outfit": "casual student outfit",
+                                "caption_type": "share",
+                                "suggested_caption_theme": "补充能量",
+                            }
+                        )
+
+                    # 18:00 - 回宿舍
+                    if len(variant) > 6:
+                        variant[6].update(
+                            {
+                                "activity_type": ActivityType.COMMUTING,
+                                "activity_description": "回宿舍",
+                                "activity_detail": "一天的课/自习结束，慢慢走回宿舍",
+                                "location": "校园路上",
+                                "location_prompt": "campus, sunset, walking",
+                                "pose": "walking, relaxed",
+                                "body_action": "walking back",
+                                "hand_action": "carrying bag",
+                                "expression": "tired but content",
+                                "mood": "relaxed",
+                                "outfit": "casual student outfit",
+                                "caption_type": "narrative",
+                                "suggested_caption_theme": "回去休息",
+                            }
+                        )
+
+                    # 20:00 - 宿舍放松
+                    if len(variant) > 7:
+                        variant[7].update(
+                            {
+                                "activity_type": ActivityType.RELAXING,
+                                "activity_description": "宿舍放松",
+                                "activity_detail": "回到宿舍，躺一会儿放松一下",
+                                "location": "宿舍",
+                                "location_prompt": "dorm room, cozy, evening",
+                                "pose": "lounging on bed",
+                                "body_action": "relaxing",
+                                "hand_action": "head propped on hand",
+                                "expression": "relieved",
+                                "mood": "relaxed",
+                                "outfit": "comfortable home clothes",
+                                "caption_type": "monologue",
+                                "suggested_caption_theme": "终于可以休息了",
+                            }
+                        )
+
+                else:
+                    # 上班族另一套：把部分节点换成更常见的办公日常，降低跨天重复感
+                    if len(variant) > 3:
+                        variant[3]["activity_detail"] = "中午出来吃点清淡的，顺便透透气"
+                        variant[3]["suggested_caption_theme"] = "午餐小确幸"
+                    if len(variant) > 5:
+                        variant[5]["activity_description"] = "下午茶摸鱼"
+                        variant[5]["activity_detail"] = "工作到下午有点累，喝点东西缓缓"
+                        variant[5]["caption_type"] = "share"
+                        variant[5]["suggested_caption_theme"] = "下午茶回血"
+                    if len(variant) > 7:
+                        variant[7]["activity_description"] = "回家做饭"
+                        variant[7]["activity_detail"] = "下班回家简单做点吃的，放松一下"
+                        variant[7]["location"] = "家里厨房"
+                        variant[7]["location_prompt"] = "home kitchen, evening, warm light"
+                        variant[7]["hand_action"] = "holding cooking utensil"
+                        variant[7]["caption_type"] = "share"
+                        variant[7]["suggested_caption_theme"] = "今晚吃点什么"
+
+            except Exception:
+                pass
+
+        candidate_sets: List[List[Dict[str, Any]]] = [base, variant]
+        select_key = f"{date}|{persona_mode}|{'holiday' if is_holiday else 'workday'}"
+        selected_index = int(hashlib.md5(select_key.encode("utf-8")).hexdigest(), 16) % len(candidate_sets)
+        logger.info(
+            "选择回退模板集: "
+            f"mode={'holiday' if is_holiday else 'workday'}, persona={persona_mode}, "
+            f"set={selected_index + 1}/{len(candidate_sets)}"
+        )
+        return candidate_sets[selected_index]
+
     def get_schedule_file_path(self, date: Optional[str] = None) -> str:
         """
         获取日程文件路径
@@ -1544,43 +2119,65 @@ class ScheduleGenerator:
         return os.path.join(plugin_dir, f"daily_schedule_{date}.json")
 
     def _cleanup_old_schedule_files(self, current_date: str) -> None:
-        """
-        清理旧的日程文件
-        
-        删除非当天的日程文件，避免文件越堆越多。
-        
+        """清理旧的日程文件。
+
+        Phase 2：跨天去重需要保留最近 7 天日程用于回灌 prompt，因此不再删除所有非当天文件。
+        默认保留窗口：current_date-7 ... current_date（含当天，共 8 天文件）。
+
         Args:
             current_date: 当前日期 YYYY-MM-DD
         """
         try:
             # 获取插件目录
             plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            
+
             # 查找所有日程文件
             import glob
+
             pattern = os.path.join(plugin_dir, "daily_schedule_*.json")
             schedule_files = glob.glob(pattern)
-            
+
+            try:
+                base_date = datetime.strptime(current_date, "%Y-%m-%d")
+            except ValueError:
+                logger.warning(f"current_date 格式不正确，跳过清理: {current_date}")
+                return
+
+            # N 表示“向前保留 N 天”（不含未来限制），为了支持回灌最近7天摘要，默认 N=7。
+            retention_days_raw = self.plugin.get_config("auto_selfie.schedule_retention_days", 7)
+            try:
+                retention_days = int(retention_days_raw)
+            except (TypeError, ValueError):
+                retention_days = 7
+            retention_days = max(0, retention_days)
+
+            keep_from = base_date - timedelta(days=retention_days)
+
             deleted_count = 0
             for file_path in schedule_files:
-                # 提取文件中的日期
                 filename = os.path.basename(file_path)
-                # daily_schedule_YYYY-MM-DD.json
-                if filename.startswith("daily_schedule_") and filename.endswith(".json"):
-                    file_date = filename[15:-5]  # 提取日期部分
-                    
-                    # 如果不是当天的文件，删除它
-                    if file_date != current_date:
-                        try:
-                            os.remove(file_path)
-                            deleted_count += 1
-                            logger.debug(f"已删除旧日程文件: {filename}")
-                        except OSError as e:
-                            logger.warning(f"删除旧日程文件失败 {filename}: {e}")
-            
+                if not (filename.startswith("daily_schedule_") and filename.endswith(".json")):
+                    continue
+
+                file_date_str = filename[15:-5]  # daily_schedule_YYYY-MM-DD.json
+                try:
+                    file_date = datetime.strptime(file_date_str, "%Y-%m-%d")
+                except ValueError:
+                    # 文件名不符合日期格式，保守起见不删除
+                    continue
+
+                # 删除早于 keep_from 的文件；保留 keep_from 及之后的文件（包含当天与最近 N 天）
+                if file_date < keep_from:
+                    try:
+                        os.remove(file_path)
+                        deleted_count += 1
+                        logger.debug(f"已删除旧日程文件: {filename}")
+                    except OSError as e:
+                        logger.warning(f"删除旧日程文件失败 {filename}: {e}")
+
             if deleted_count > 0:
-                logger.info(f"已清理 {deleted_count} 个旧日程文件")
-                
+                logger.info(f"已清理 {deleted_count} 个旧日程文件（保留最近 {retention_days} 天窗口）")
+
         except Exception as e:
             logger.warning(f"清理旧日程文件时出错: {e}")
 
@@ -1610,15 +2207,22 @@ class ScheduleGenerator:
         """
         # 清理旧的日程文件（非当天的）
         self._cleanup_old_schedule_files(date)
-        
+
         file_path = self.get_schedule_file_path(date)
 
         # 如果不是强制重新生成，尝试从文件加载
         if not force_regenerate:
             existing = DailySchedule.load_from_file(file_path)
             if existing and existing.date == date:
-                logger.info(f"从文件加载已有日程: {date}")
-                return existing
+                current_signature = self._get_schedule_persona_signature()
+                if existing.character_persona == current_signature:
+                    logger.info(f"从文件加载已有日程: {date}")
+                    return existing
+
+                logger.info(
+                    "检测到日程人设配置变更，触发重新生成 "
+                    f"(old_signature_len={len(existing.character_persona)}, new_signature_len={len(current_signature)})"
+                )
 
         # 生成新日程（角色信息在 generate_daily_schedule 内部自动获取）
         schedule = await self.generate_daily_schedule(

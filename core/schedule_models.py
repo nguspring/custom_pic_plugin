@@ -48,10 +48,10 @@ class ActivityType(Enum):
 class SceneVariation:
     """
     场景变体 - 同一时间段内的不同瞬间
-    
+
     用于间隔补充触发时提供变化，保持同一时间段内多次发送不重复。
     场景变体保持相同的地点和服装，但改变姿势、动作、表情等。
-    
+
     Attributes:
         variation_id: 变体唯一标识
         description: 变体描述（中文，如"喝水休息"）
@@ -64,6 +64,7 @@ class SceneVariation:
         is_used: 是否已使用
         used_at: 使用时间
     """
+
     variation_id: str
     description: str
     pose: str
@@ -74,7 +75,7 @@ class SceneVariation:
     caption_theme: str = ""
     is_used: bool = False
     used_at: Optional[str] = None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         return {
@@ -89,7 +90,7 @@ class SceneVariation:
             "is_used": self.is_used,
             "used_at": self.used_at,
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SceneVariation":
         """从字典创建实例"""
@@ -105,7 +106,7 @@ class SceneVariation:
             is_used=data.get("is_used", False),
             used_at=data.get("used_at"),
         )
-    
+
     def mark_used(self) -> None:
         """标记为已使用"""
         self.is_used = True
@@ -183,7 +184,7 @@ class ScheduleEntry:
     # 状态
     is_completed: bool = False
     completed_at: Optional[str] = None
-    
+
     # v2.0 新增：场景变体列表
     scene_variations: List[SceneVariation] = field(default_factory=list)
     # 追踪间隔补充使用情况
@@ -245,18 +246,14 @@ class ScheduleEntry:
             try:
                 activity_type = ActivityType(activity_type_value)
             except ValueError:
-                logger.warning(
-                    f"未知的活动类型: {activity_type_value}，使用 OTHER"
-                )
+                logger.warning(f"未知的活动类型: {activity_type_value}，使用 OTHER")
                 activity_type = ActivityType.OTHER
         else:
             activity_type = activity_type_value
 
         # 解析场景变体列表
         variations_data = data.get("scene_variations", [])
-        scene_variations = [
-            SceneVariation.from_dict(v) for v in variations_data
-        ] if variations_data else []
+        scene_variations = [SceneVariation.from_dict(v) for v in variations_data] if variations_data else []
 
         return cls(
             time_point=data.get("time_point", ""),
@@ -329,9 +326,7 @@ class ScheduleEntry:
             是否在范围内
         """
         current_str = current_time.strftime("%H:%M")
-        return self._is_time_in_range_static(
-            current_str, self.time_range_start, self.time_range_end
-        )
+        return self._is_time_in_range_static(current_str, self.time_range_start, self.time_range_end)
 
     @staticmethod
     def _is_time_in_range_static(current: str, start: str, end: str) -> bool:
@@ -346,6 +341,7 @@ class ScheduleEntry:
         Returns:
             是否在范围内
         """
+
         def time_to_minutes(time_str: str) -> int:
             try:
                 parts = time_str.split(":")
@@ -366,11 +362,11 @@ class ScheduleEntry:
     # ================================================================
     # v2.0 新增：场景变体相关方法
     # ================================================================
-    
+
     def get_unused_variation(self) -> Optional[SceneVariation]:
         """
         获取一个未使用的场景变体
-        
+
         Returns:
             未使用的场景变体，如果都已使用则返回 None
         """
@@ -378,11 +374,11 @@ class ScheduleEntry:
             if not variation.is_used:
                 return variation
         return None
-    
+
     def get_next_variation(self) -> Optional[SceneVariation]:
         """
         获取下一个可用的场景变体（优先返回未使用的，否则重置并返回第一个）
-        
+
         Returns:
             下一个可用的场景变体
         """
@@ -390,21 +386,21 @@ class ScheduleEntry:
         unused = self.get_unused_variation()
         if unused:
             return unused
-        
+
         # 如果都已使用，重置所有变体并返回第一个
         if self.scene_variations:
             self.reset_variations()
             return self.scene_variations[0]
-        
+
         return None
-    
+
     def mark_variation_used(self, variation_id: str) -> bool:
         """
         标记指定变体为已使用
-        
+
         Args:
             variation_id: 变体ID
-            
+
         Returns:
             是否成功标记
         """
@@ -413,35 +409,35 @@ class ScheduleEntry:
                 variation.mark_used()
                 return True
         return False
-    
+
     def reset_variations(self) -> None:
         """重置所有变体的使用状态"""
         for variation in self.scene_variations:
             variation.is_used = False
             variation.used_at = None
-    
+
     def get_used_variation_count(self) -> int:
         """获取已使用的变体数量"""
         return sum(1 for v in self.scene_variations if v.is_used)
-    
+
     def has_available_variation(self) -> bool:
         """检查是否有可用的变体"""
         return any(not v.is_used for v in self.scene_variations)
-    
+
     def record_interval_use(self) -> None:
         """记录一次间隔补充使用"""
         self.interval_use_count += 1
         self.last_interval_use_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+
     def create_variation_prompt(self, variation: SceneVariation) -> str:
         """
         使用变体信息创建图片生成提示词
-        
+
         保持原条目的地点、服装、环境等，替换姿势、动作、表情。
-        
+
         Args:
             variation: 场景变体
-            
+
         Returns:
             完整的英文提示词
         """
@@ -474,10 +470,10 @@ class ScheduleEntry:
 class DailyNarrativeState:
     """
     每日叙事状态 - 追踪一天的连续性
-    
+
     用于保持一天内自拍的连续性，记录当前位置、服装、情绪变化等。
     在间隔补充触发时，根据叙事状态选择合适的场景。
-    
+
     Attributes:
         current_location: 当前位置（最后一次发送时的位置）
         current_outfit: 当前服装（最后一次发送时的服装）
@@ -488,6 +484,7 @@ class DailyNarrativeState:
         total_sent_count: 今日总发送次数
         interval_sent_count: 间隔补充发送次数
     """
+
     current_location: str = ""
     current_outfit: str = ""
     mood_trajectory: List[str] = field(default_factory=list)
@@ -496,7 +493,7 @@ class DailyNarrativeState:
     last_sent_entry_time_point: str = ""
     total_sent_count: int = 0
     interval_sent_count: int = 0
-    
+
     def update_after_send(
         self,
         entry: "ScheduleEntry",
@@ -505,7 +502,7 @@ class DailyNarrativeState:
     ) -> None:
         """
         发送后更新叙事状态
-        
+
         Args:
             entry: 使用的日程条目
             variation: 使用的场景变体（如果有）
@@ -516,69 +513,69 @@ class DailyNarrativeState:
         self.last_sent_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.last_sent_entry_time_point = entry.time_point
         self.total_sent_count += 1
-        
+
         if is_interval:
             self.interval_sent_count += 1
-        
+
         # 记录情绪
         mood = variation.mood if variation else entry.mood
         self.mood_trajectory.append(mood)
-        
+
         # 记录场景摘要
         if variation:
             summary = f"[{entry.time_point}] {variation.description}"
         else:
             summary = f"[{entry.time_point}] {entry.activity_description}"
         self.sent_scenes_summary.append(summary)
-        
+
         # 限制摘要数量（保留最近 10 条）
         if len(self.sent_scenes_summary) > 10:
             self.sent_scenes_summary = self.sent_scenes_summary[-10:]
         if len(self.mood_trajectory) > 10:
             self.mood_trajectory = self.mood_trajectory[-10:]
-    
+
     def get_context_for_caption(self) -> str:
         """
         获取用于生成配文的上下文
-        
+
         Returns:
             叙事上下文字符串
         """
         if not self.sent_scenes_summary:
             return "今天还没有发过自拍。"
-        
+
         context_parts = [f"今天已发送 {self.total_sent_count} 张自拍："]
         for summary in self.sent_scenes_summary[-3:]:  # 最近 3 条
             context_parts.append(f"- {summary}")
-        
+
         if self.current_location:
             context_parts.append(f"当前位置：{self.current_location}")
-        
+
         return "\n".join(context_parts)
-    
+
     def can_transition_to(self, target_entry: "ScheduleEntry") -> Tuple[bool, str]:
         """
         检查是否可以自然过渡到目标场景
-        
+
         Args:
             target_entry: 目标日程条目
-            
+
         Returns:
             Tuple[是否可以过渡, 原因说明]
         """
         # 如果没有发送过，任何场景都可以
         if not self.last_sent_entry_time_point:
             return True, "首次发送"
-        
+
         # 如果位置相同，可以过渡
         if self.current_location == target_entry.location:
             return True, "位置相同"
-        
+
         # 如果位置不同，检查是否是合理的过渡
         # 例如：办公室 -> 家里 需要有"下班"的过渡
         # 这里简化处理，允许任何过渡但返回说明
         return True, f"位置变化：{self.current_location} -> {target_entry.location}"
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         return {
@@ -591,7 +588,7 @@ class DailyNarrativeState:
             "total_sent_count": self.total_sent_count,
             "interval_sent_count": self.interval_sent_count,
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "DailyNarrativeState":
         """从字典创建实例"""
@@ -633,13 +630,17 @@ class DailySchedule:
     entries: List[ScheduleEntry] = field(default_factory=list)
     generated_at: str = ""  # 生成时间
     model_used: str = ""  # 使用的模型
-    
+
+    # 当 model_used == "fallback" 时写入，说明触发回退的原因（用于验收与排查）
+    fallback_reason: Optional[str] = None
+
+    # 当 model_used == "fallback" 时写入：对应的失败包文件名（位于插件目录下）
+    fallback_failure_package: Optional[str] = None
+
     # v2.0 新增：叙事状态追踪
     narrative_state: DailyNarrativeState = field(default_factory=DailyNarrativeState)
 
-    def get_current_entry(
-        self, current_time: Optional[datetime] = None
-    ) -> Optional[ScheduleEntry]:
+    def get_current_entry(self, current_time: Optional[datetime] = None) -> Optional[ScheduleEntry]:
         """
         获取当前时间应该触发的场景条目
 
@@ -658,16 +659,12 @@ class DailySchedule:
             if entry.is_completed:
                 continue
 
-            if self._is_time_in_range(
-                current_time_str, entry.time_range_start, entry.time_range_end
-            ):
+            if self._is_time_in_range(current_time_str, entry.time_range_start, entry.time_range_end):
                 return entry
 
         return None
 
-    def get_closest_entry(
-        self, current_time: Optional[datetime] = None
-    ) -> tuple[Optional[ScheduleEntry], str]:
+    def get_closest_entry(self, current_time: Optional[datetime] = None) -> tuple[Optional[ScheduleEntry], str]:
         """
         获取距离当前时间最近的场景条目（不考虑完成状态）
 
@@ -699,9 +696,7 @@ class DailySchedule:
 
         for entry in self.entries:
             # 首先检查是否在条目的时间范围内
-            if self._is_time_in_range(
-                current_time_str, entry.time_range_start, entry.time_range_end
-            ):
+            if self._is_time_in_range(current_time_str, entry.time_range_start, entry.time_range_end):
                 return entry, "within"
 
             # 计算与条目时间点的距离
@@ -732,9 +727,7 @@ class DailySchedule:
 
         return closest_entry, time_relation
 
-    def get_next_entry(
-        self, current_time: Optional[datetime] = None
-    ) -> Optional[ScheduleEntry]:
+    def get_next_entry(self, current_time: Optional[datetime] = None) -> Optional[ScheduleEntry]:
         """
         获取下一个未完成的场景条目
 
@@ -760,9 +753,7 @@ class DailySchedule:
 
         return None
 
-    def mark_entry_completed(
-        self, time_point: str, caption: str = ""
-    ) -> bool:
+    def mark_entry_completed(self, time_point: str, caption: str = "") -> bool:
         """
         标记条目为已完成
 
@@ -800,9 +791,7 @@ class DailySchedule:
 
         context_parts = [f"今天是{self.date}，{self.day_of_week}"]
         for entry in completed:
-            context_parts.append(
-                f"- [{entry.time_point}] {entry.activity_description}"
-            )
+            context_parts.append(f"- [{entry.time_point}] {entry.activity_description}")
 
         return "\n".join(context_parts)
 
@@ -861,6 +850,9 @@ class DailySchedule:
             "entries": [e.to_dict() for e in self.entries],
             "generated_at": self.generated_at,
             "model_used": self.model_used,
+            # Phase 0：fallback 诊断信息
+            "fallback_reason": self.fallback_reason,
+            "fallback_failure_package": self.fallback_failure_package,
             # v2.0 新增
             "narrative_state": self.narrative_state.to_dict(),
         }
@@ -878,8 +870,10 @@ class DailySchedule:
         """
         # 解析叙事状态
         narrative_state_data = data.get("narrative_state", {})
-        narrative_state = DailyNarrativeState.from_dict(narrative_state_data) if narrative_state_data else DailyNarrativeState()
-        
+        narrative_state = (
+            DailyNarrativeState.from_dict(narrative_state_data) if narrative_state_data else DailyNarrativeState()
+        )
+
         schedule = cls(
             date=data.get("date", ""),
             day_of_week=data.get("day_of_week", ""),
@@ -888,14 +882,14 @@ class DailySchedule:
             character_persona=data.get("character_persona", ""),
             generated_at=data.get("generated_at", ""),
             model_used=data.get("model_used", ""),
+            fallback_reason=data.get("fallback_reason"),
+            fallback_failure_package=data.get("fallback_failure_package"),
             narrative_state=narrative_state,
         )
 
         # 解析条目
         entries_data = data.get("entries", [])
-        schedule.entries = [
-            ScheduleEntry.from_dict(e) for e in entries_data
-        ]
+        schedule.entries = [ScheduleEntry.from_dict(e) for e in entries_data]
 
         return schedule
 

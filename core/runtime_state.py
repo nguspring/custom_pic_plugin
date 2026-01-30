@@ -6,6 +6,7 @@
 - 撤回开关
 - 默认模型设置
 """
+
 from typing import Dict, Any, Optional, Set
 from dataclasses import dataclass, field
 from src.common.logger import get_logger
@@ -16,6 +17,7 @@ logger = get_logger("runtime_state")
 @dataclass
 class ChatStreamState:
     """单个聊天流的状态"""
+
     # 插件是否启用（None表示使用全局配置）
     plugin_enabled: Optional[bool] = None
     # 被禁用的模型ID集合

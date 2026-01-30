@@ -130,48 +130,42 @@ class CaptionGenerator:
 
     def _get_persona_block(self) -> str:
         """获取人设配置并构建人设提示块
-        
+
         根据用户配置的人设描述和表达风格，构建注入到 prompt 前的人设块。
-        
+
         Returns:
             构建好的人设提示块字符串，如果未启用则返回空字符串
         """
         # 检查是否启用人设注入
         persona_enabled = self.plugin.get_config("auto_selfie.caption_persona_enabled", True)
-        
+
         if not persona_enabled:
             logger.debug("人设注入未启用")
             return ""
-        
+
         # 获取人设配置
-        persona_text = self.plugin.get_config(
-            "auto_selfie.caption_persona_text",
-            "是一个喜欢分享日常的女生"
-        )
-        reply_style = self.plugin.get_config(
-            "auto_selfie.caption_reply_style",
-            "语气自然，符合年轻人社交风格"
-        )
-        
+        persona_text = self.plugin.get_config("auto_selfie.caption_persona_text", "是一个喜欢分享日常的女生")
+        reply_style = self.plugin.get_config("auto_selfie.caption_reply_style", "语气自然，符合年轻人社交风格")
+
         # 如果两个配置都为空，返回空字符串
         if not persona_text and not reply_style:
             logger.debug("人设和风格配置均为空，跳过注入")
             return ""
-        
+
         # 构建人设块
         persona_block_parts = []
-        
+
         if persona_text:
             persona_block_parts.append(f"【你的人设】\n你{persona_text}")
-        
+
         if reply_style:
             persona_block_parts.append(f"【表达风格】\n{reply_style}")
-        
+
         persona_block = "\n\n".join(persona_block_parts)
-        
+
         logger.info(f"[DEBUG-叙事] 人设注入已启用，人设块长度: {len(persona_block)}")
         logger.debug(f"人设块内容: {persona_block[:100]}...")
-        
+
         return persona_block + "\n\n"
 
     # ==================== 配文类型选择 ====================
@@ -197,11 +191,13 @@ class CaptionGenerator:
         2. 否则根据时间段权重随机选择
         """
         logger.info("[DEBUG-叙事] select_caption_type() 被调用")
-        scene_id = getattr(scene, 'scene_id', None) or getattr(scene, 'time_point', None)
-        logger.info(f"[DEBUG-叙事] 参数 - scene: {scene_id if scene else 'None'}, context长度: {len(narrative_context)}, hour: {current_hour}")
-        
+        scene_id = getattr(scene, "scene_id", None) or getattr(scene, "time_point", None)
+        logger.info(
+            f"[DEBUG-叙事] 参数 - scene: {scene_id if scene else 'None'}, context长度: {len(narrative_context)}, hour: {current_hour}"
+        )
+
         # 如果场景指定了配文类型，优先使用
-        if scene is not None and hasattr(scene, 'caption_type') and scene.caption_type:
+        if scene is not None and hasattr(scene, "caption_type") and scene.caption_type:
             caption_type_value = scene.caption_type if isinstance(scene.caption_type, str) else scene.caption_type.value
             logger.info(f"[DEBUG-叙事] 使用场景指定的配文类型: {caption_type_value}")
             logger.debug(f"使用场景指定的配文类型: {caption_type_value}")
@@ -230,9 +226,7 @@ class CaptionGenerator:
         # 随机选择
         selected_type = random.choices(caption_types, weights=weights, k=1)[0]
         logger.info(f"[DEBUG-叙事] 随机选择的配文类型: {selected_type.value}")
-        logger.debug(
-            f"根据时间段 {current_hour}:00 权重选择配文类型: {selected_type.value}"
-        )
+        logger.debug(f"根据时间段 {current_hour}:00 权重选择配文类型: {selected_type.value}")
 
         return selected_type
 
@@ -245,6 +239,7 @@ class CaptionGenerator:
         narrative_context: str = "",
         image_prompt: str = "",
         mood: str = "neutral",
+        visual_summary: str = "",
     ) -> str:
         """生成配文
 
@@ -254,37 +249,38 @@ class CaptionGenerator:
             narrative_context: 叙事上下文
             image_prompt: 图片提示词（英文，用于参考）
             mood: 当前情绪
+            visual_summary: 图片的视觉摘要（VLM 输出，中文）。用于保证“配文贴图”。
 
         Returns:
             生成的配文，如果类型是 NONE 则返回空字符串
         """
-        logger.info(f"[DEBUG-叙事] generate_caption() 被调用")
+        logger.info("[DEBUG-叙事] generate_caption() 被调用")
         logger.info(f"[DEBUG-叙事] 参数 - type: {caption_type.value}, scene: {scene_description}, mood: {mood}")
-        logger.info(f"[DEBUG-叙事] 参数 - context长度: {len(narrative_context)}, image_prompt: {image_prompt[:50] if image_prompt else 'None'}...")
-        
+        logger.info(
+            f"[DEBUG-叙事] 参数 - context长度: {len(narrative_context)}, image_prompt: {image_prompt[:50] if image_prompt else 'None'}..."
+        )
+
         # 如果是无配文类型，直接返回空字符串
         if caption_type == CaptionType.NONE:
             logger.info("[DEBUG-叙事] 配文类型为 NONE，返回空字符串")
             logger.debug("配文类型为 NONE，返回空字符串")
             return ""
 
-        logger.info(
-            f"开始生成配文，类型: {caption_type.value}, 场景: {scene_description}"
-        )
+        logger.info(f"开始生成配文，类型: {caption_type.value}, 场景: {scene_description}")
 
         try:
             # 根据类型调用对应的生成方法
             logger.info(f"[DEBUG-叙事] 调用 _{caption_type.value} 配文生成方法...")
             if caption_type == CaptionType.NARRATIVE:
                 caption = await self._generate_narrative_caption(
-                    scene_description, narrative_context, mood
+                    scene_description, narrative_context, mood, visual_summary
                 )
             elif caption_type == CaptionType.ASK:
-                caption = await self._generate_ask_caption(scene_description, mood)
+                caption = await self._generate_ask_caption(scene_description, mood, visual_summary)
             elif caption_type == CaptionType.SHARE:
-                caption = await self._generate_share_caption(scene_description, mood)
+                caption = await self._generate_share_caption(scene_description, mood, visual_summary)
             elif caption_type == CaptionType.MONOLOGUE:
-                caption = await self._generate_monologue_caption(mood)
+                caption = await self._generate_monologue_caption(mood, visual_summary)
             else:
                 logger.warning(f"[DEBUG-叙事] 未知的配文类型: {caption_type}")
                 logger.warning(f"未知的配文类型: {caption_type}")
@@ -303,6 +299,7 @@ class CaptionGenerator:
 
         except Exception as e:
             import traceback
+
             logger.error(f"[DEBUG-叙事] 配文生成异常: {e}")
             logger.error(f"[DEBUG-叙事] 异常堆栈: {traceback.format_exc()}")
             logger.error(f"配文生成异常: {e}")
@@ -312,11 +309,29 @@ class CaptionGenerator:
 
     # ==================== 各类型专用生成方法 ====================
 
+    def _get_visual_block(self, visual_summary: str) -> str:
+        """构建视觉摘要提示块。
+
+        Phase 4：用于“配文贴图”。视觉摘要来自 VLM，对应本次实际生成的图片。
+        """
+        if not visual_summary or not visual_summary.strip():
+            return ""
+
+        # 强约束：配文应以视觉摘要为准，避免编造画面外元素。
+        return (
+            "【图片视觉摘要（以此为准）】\n"
+            f"{visual_summary.strip()}\n\n"
+            "写配文时：\n"
+            "- 不要提及摘要里没有的具体物品/动作\n"
+            "- 不要出现 phone/smartphone/mobile/device 等手机相关词（standard 自拍手机在画面外）\n\n"
+        )
+
     async def _generate_narrative_caption(
         self,
         scene_description: str,
         narrative_context: str,
         mood: str,
+        visual_summary: str,
     ) -> str:
         """生成叙事式配文
 
@@ -336,11 +351,16 @@ class CaptionGenerator:
 
         # 获取人设块并注入到 prompt 前面
         persona_block = self._get_persona_block()
-        
-        prompt = persona_block + self.PROMPT_TEMPLATES[CaptionType.NARRATIVE].format(
-            scene_description=scene_description or "日常",
-            narrative_context=narrative_context,
-            mood=mood,
+        visual_block = self._get_visual_block(visual_summary)
+
+        prompt = (
+            persona_block
+            + visual_block
+            + self.PROMPT_TEMPLATES[CaptionType.NARRATIVE].format(
+                scene_description=scene_description or "日常",
+                narrative_context=narrative_context,
+                mood=mood,
+            )
         )
 
         return await self._call_llm(prompt)
@@ -349,6 +369,7 @@ class CaptionGenerator:
         self,
         scene_description: str,
         mood: str,
+        visual_summary: str,
     ) -> str:
         """生成询问式配文
 
@@ -363,10 +384,15 @@ class CaptionGenerator:
         """
         # 获取人设块并注入到 prompt 前面
         persona_block = self._get_persona_block()
-        
-        prompt = persona_block + self.PROMPT_TEMPLATES[CaptionType.ASK].format(
-            scene_description=scene_description or "自拍",
-            mood=mood,
+        visual_block = self._get_visual_block(visual_summary)
+
+        prompt = (
+            persona_block
+            + visual_block
+            + self.PROMPT_TEMPLATES[CaptionType.ASK].format(
+                scene_description=scene_description or "自拍",
+                mood=mood,
+            )
         )
 
         return await self._call_llm(prompt)
@@ -375,6 +401,7 @@ class CaptionGenerator:
         self,
         scene_description: str,
         mood: str,
+        visual_summary: str,
     ) -> str:
         """生成分享式配文
 
@@ -389,10 +416,15 @@ class CaptionGenerator:
         """
         # 获取人设块并注入到 prompt 前面
         persona_block = self._get_persona_block()
-        
-        prompt = persona_block + self.PROMPT_TEMPLATES[CaptionType.SHARE].format(
-            scene_description=scene_description or "日常",
-            mood=mood,
+        visual_block = self._get_visual_block(visual_summary)
+
+        prompt = (
+            persona_block
+            + visual_block
+            + self.PROMPT_TEMPLATES[CaptionType.SHARE].format(
+                scene_description=scene_description or "日常",
+                mood=mood,
+            )
         )
 
         return await self._call_llm(prompt)
@@ -400,6 +432,7 @@ class CaptionGenerator:
     async def _generate_monologue_caption(
         self,
         mood: str,
+        visual_summary: str,
     ) -> str:
         """生成独白式配文
 
@@ -413,9 +446,14 @@ class CaptionGenerator:
         """
         # 获取人设块并注入到 prompt 前面
         persona_block = self._get_persona_block()
-        
-        prompt = persona_block + self.PROMPT_TEMPLATES[CaptionType.MONOLOGUE].format(
-            mood=mood,
+        visual_block = self._get_visual_block(visual_summary)
+
+        prompt = (
+            persona_block
+            + visual_block
+            + self.PROMPT_TEMPLATES[CaptionType.MONOLOGUE].format(
+                mood=mood,
+            )
         )
 
         return await self._call_llm(prompt)
@@ -445,7 +483,7 @@ class CaptionGenerator:
             # 获取用户配置的自定义模型 ID
             custom_model_id = self.plugin.get_config("auto_selfie.caption_model_id", "")
             logger.info(f"[DEBUG-叙事] 配置的自定义模型ID: '{custom_model_id}'")
-            
+
             # 如果用户配置了自定义模型，尝试使用
             if custom_model_id:
                 available_models = llm_api.get_available_models()
@@ -454,7 +492,7 @@ class CaptionGenerator:
                     model_config = available_models[custom_model_id]
                     logger.info(f"[DEBUG-叙事] 使用用户配置的模型: {custom_model_id}")
                     logger.debug(f"使用用户配置的模型: {custom_model_id}")
-                    
+
                     # 调用 LLM 生成
                     success, content, reasoning, model_name = await llm_api.generate_with_model(
                         prompt=prompt,
@@ -463,8 +501,10 @@ class CaptionGenerator:
                         temperature=0.8,
                         max_tokens=9999,
                     )
-                    
-                    logger.info(f"[DEBUG-叙事] LLM调用结果: success={success}, content长度={len(content) if content else 0}")
+
+                    logger.info(
+                        f"[DEBUG-叙事] LLM调用结果: success={success}, content长度={len(content) if content else 0}"
+                    )
                     if success and content:
                         logger.info(f"[DEBUG-叙事] LLM 生成成功，使用模型: {model_name}")
                         logger.debug(f"LLM 生成成功，使用模型: {model_name}")
@@ -476,23 +516,21 @@ class CaptionGenerator:
                 else:
                     logger.warning(f"[DEBUG-叙事] 配置的模型 '{custom_model_id}' 不存在，回退到默认 replyer 模型")
                     logger.warning(f"配置的模型 '{custom_model_id}' 不存在，回退到默认 replyer 模型")
-            
+
             # 默认使用 MaiBot 的 replyer 模型（回复模型）
             # 这样配文风格与麦麦的回复保持一致
             logger.info("[DEBUG-叙事] 尝试使用 MaiBot replyer 模型")
             try:
                 replyer_request = LLMRequest(
                     model_set=maibot_model_config.model_task_config.replyer,
-                    request_type="plugin.auto_selfie.caption_generate"
+                    request_type="plugin.auto_selfie.caption_generate",
                 )
                 logger.info("[DEBUG-叙事] LLMRequest 创建成功，调用 generate_response_async...")
-                
+
                 content, reasoning = await replyer_request.generate_response_async(
-                    prompt,
-                    temperature=0.8,
-                    max_tokens=9999
+                    prompt, temperature=0.8, max_tokens=9999
                 )
-                
+
                 logger.info(f"[DEBUG-叙事] replyer模型返回: content长度={len(content) if content else 0}")
                 if content:
                     logger.info("[DEBUG-叙事] LLM 生成成功，使用 MaiBot replyer 模型")
@@ -502,22 +540,25 @@ class CaptionGenerator:
                     logger.warning("[DEBUG-叙事] replyer 模型生成失败，返回空内容")
                     logger.warning("replyer 模型生成失败，返回空内容")
                     return ""
-                    
+
             except Exception as e:
                 import traceback
+
                 logger.warning(f"[DEBUG-叙事] 使用 replyer 模型失败: {e}")
                 logger.warning(f"[DEBUG-叙事] replyer失败堆栈: {traceback.format_exc()}")
                 logger.warning(f"使用 replyer 模型失败: {e}，尝试使用 llm_api 备用方案")
-                
+
                 # 备用方案：使用 llm_api 的第一个可用模型
                 available_models = llm_api.get_available_models()
-                logger.info(f"[DEBUG-叙事] 备用方案 - 可用模型: {list(available_models.keys()) if available_models else '无'}")
+                logger.info(
+                    f"[DEBUG-叙事] 备用方案 - 可用模型: {list(available_models.keys()) if available_models else '无'}"
+                )
                 if available_models:
                     first_key = next(iter(available_models))
                     model_config = available_models[first_key]
                     logger.info(f"[DEBUG-叙事] 使用备用模型: {first_key}")
                     logger.debug(f"使用备用模型: {first_key}")
-                    
+
                     success, content, reasoning, model_name = await llm_api.generate_with_model(
                         prompt=prompt,
                         model_config=model_config,
@@ -525,17 +566,20 @@ class CaptionGenerator:
                         temperature=0.8,
                         max_tokens=9999,
                     )
-                    
-                    logger.info(f"[DEBUG-叙事] 备用模型调用结果: success={success}, content长度={len(content) if content else 0}")
+
+                    logger.info(
+                        f"[DEBUG-叙事] 备用模型调用结果: success={success}, content长度={len(content) if content else 0}"
+                    )
                     if success and content:
                         return self._clean_caption(content)
                 else:
                     logger.warning("[DEBUG-叙事] 没有可用的备用模型")
-                
+
                 return ""
 
         except Exception as e:
             import traceback
+
             logger.error(f"[DEBUG-叙事] LLM 调用异常: {e}")
             logger.error(f"[DEBUG-叙事] 异常堆栈: {traceback.format_exc()}")
             logger.error(f"LLM 调用异常: {e}")
@@ -560,7 +604,7 @@ class CaptionGenerator:
         caption = raw_caption.strip()
 
         # 去除首尾的各种引号
-        quote_chars = ['"', "'", '"', '"', ''', ''', '「', '」', '『', '』']
+        quote_chars = ['"', "'", '"', '"', """, """, "「", "」", "『", "』"]
         for char in quote_chars:
             if caption.startswith(char):
                 caption = caption[1:]

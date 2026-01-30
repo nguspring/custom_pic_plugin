@@ -6,11 +6,12 @@
 """
 
 import random
+import re
 from typing import Any, Dict, List, Optional
 
 from src.common.logger import get_logger
 
-from .schedule_models import ActivityType, ScheduleEntry
+from .schedule_models import ActivityType, ScheduleEntry, SceneVariation
 
 logger = get_logger("SceneActionGenerator")
 
@@ -54,7 +55,7 @@ class SceneActionGenerator:
             "looking at screen, focused",
             "holding pen, thinking",
             "reading documents",
-            "on phone call, professional",
+            "reviewing notes, professional",
         ],
         "studying": [
             "holding book, reading",
@@ -74,7 +75,7 @@ class SceneActionGenerator:
         ],
         "relaxing": [
             "lying on couch, relaxed",
-            "holding phone, scrolling",
+            "resting head on hand, zoning out",
             "playing with pet",
             "reading magazine",
             "listening to music, headphones",
@@ -91,7 +92,7 @@ class SceneActionGenerator:
         "commuting": [
             "holding bag, walking",
             "standing, waiting",
-            "looking at phone, checking",
+            "looking out window, daydreaming",
             "wearing earbuds, commuting",
             "holding coffee, on the go",
             "checking watch, hurried",
@@ -131,7 +132,7 @@ class SceneActionGenerator:
         "finger heart, cute pose",
         "hand on hip, confident",
         "playing with hair",
-        "holding phone, selfie",
+        "framing face with hand, selfie pose",
     ]
 
     def __init__(self, config_provider: Any):
@@ -159,9 +160,7 @@ class SceneActionGenerator:
             return self._config_provider.get_config(key, default)
         return default
 
-    def get_action_for_scene(
-        self, schedule_entry: ScheduleEntry
-    ) -> Dict[str, str]:
+    def get_action_for_scene(self, schedule_entry: ScheduleEntry) -> Dict[str, str]:
         """
         根据场景获取适合的动作
 
@@ -190,15 +189,11 @@ class SceneActionGenerator:
         # 1. 优先使用 ScheduleEntry 中的 LLM 生成动作
         if schedule_entry.hand_action and schedule_entry.hand_action.strip():
             result["hand_action"] = schedule_entry.hand_action.strip()
-            logger.debug(
-                f"使用 LLM 生成的手部动作: {result['hand_action']}"
-            )
+            logger.debug(f"使用 LLM 生成的手部动作: {result['hand_action']}")
 
         if schedule_entry.body_action and schedule_entry.body_action.strip():
             result["body_action"] = schedule_entry.body_action.strip()
-            logger.debug(
-                f"使用 LLM 生成的身体动作: {result['body_action']}"
-            )
+            logger.debug(f"使用 LLM 生成的身体动作: {result['body_action']}")
 
         if schedule_entry.pose and schedule_entry.pose.strip():
             result["pose"] = schedule_entry.pose.strip()
@@ -213,23 +208,17 @@ class SceneActionGenerator:
                 activity_key = str(activity_type)
 
             # 获取该活动类型的动作列表
-            actions = self.ACTIVITY_ACTIONS.get(
-                activity_key, self.ACTIVITY_ACTIONS["other"]
-            )
+            actions = self.ACTIVITY_ACTIONS.get(activity_key, self.ACTIVITY_ACTIONS["other"])
 
             if actions:
                 selected_action = random.choice(actions)
                 result["hand_action"] = selected_action
-                logger.debug(
-                    f"从活动类型 '{activity_key}' 选择动作: {selected_action}"
-                )
+                logger.debug(f"从活动类型 '{activity_key}' 选择动作: {selected_action}")
 
         # 3. 如果仍然为空，使用通用回退
         if not result["hand_action"]:
             result["hand_action"] = random.choice(self.FALLBACK_HAND_ACTIONS)
-            logger.debug(
-                f"使用回退手部动作: {result['hand_action']}"
-            )
+            logger.debug(f"使用回退手部动作: {result['hand_action']}")
 
         return result
 
@@ -237,6 +226,7 @@ class SceneActionGenerator:
         self,
         schedule_entry: ScheduleEntry,
         selfie_style: str = "standard",
+        scene_variation: Optional[SceneVariation] = None,
     ) -> str:
         """
         将场景转换为 Stable Diffusion 提示词
@@ -265,43 +255,69 @@ class SceneActionGenerator:
         prompt_parts.append(forced_subject)
 
         # 2. 获取角色外观（从配置）
-        bot_appearance = str(
-            self.get_config("selfie.prompt_prefix", "")
-        ).strip()
+        bot_appearance = str(self.get_config("selfie.prompt_prefix", "")).strip()
         if bot_appearance:
             prompt_parts.append(bot_appearance)
 
-        # 3. 表情
-        if schedule_entry.expression and schedule_entry.expression.strip():
-            expression = schedule_entry.expression.strip()
-            prompt_parts.append(f"({expression}:1.2)")
+        # 3. 表情（变体优先）
+        expression_src = ""
+        if scene_variation and scene_variation.expression and scene_variation.expression.strip():
+            expression_src = scene_variation.expression.strip()
+        elif schedule_entry.expression and schedule_entry.expression.strip():
+            expression_src = schedule_entry.expression.strip()
+
+        if expression_src:
+            prompt_parts.append(f"({expression_src}:1.2)")
 
         # 4. 获取动作
         actions = self.get_action_for_scene(schedule_entry)
 
-        # 姿势
-        if actions["pose"]:
+        # 姿势（变体优先）
+        if scene_variation and scene_variation.pose and scene_variation.pose.strip():
+            prompt_parts.append(scene_variation.pose.strip())
+        elif actions["pose"]:
             prompt_parts.append(actions["pose"])
         elif schedule_entry.pose:
             prompt_parts.append(schedule_entry.pose)
 
-        # 身体动作
-        if actions["body_action"]:
-            prompt_parts.append(actions["body_action"])
+        # 身体动作（变体优先）
+        body_action_src = ""
+        if scene_variation and scene_variation.body_action and scene_variation.body_action.strip():
+            body_action_src = scene_variation.body_action.strip()
+        elif actions["body_action"]:
+            body_action_src = actions["body_action"]
+        elif schedule_entry.body_action and schedule_entry.body_action.strip():
+            body_action_src = schedule_entry.body_action.strip()
 
-        # 手部动作（重点强调）
-        if actions["hand_action"]:
+        if body_action_src:
+            prompt_parts.append(body_action_src)
+
+        # 手部动作（变体优先）
+        hand_action_src = ""
+        if scene_variation and scene_variation.hand_action and scene_variation.hand_action.strip():
+            hand_action_src = scene_variation.hand_action.strip()
+        elif schedule_entry.hand_action and schedule_entry.hand_action.strip():
+            hand_action_src = schedule_entry.hand_action.strip()
+        elif actions["hand_action"]:
+            hand_action_src = actions["hand_action"]
+
+        # standard 自拍严格禁止手机类词汇（mirror 模式允许）
+        if selfie_style == "standard" and hand_action_src:
+            if re.search(r"\b(phone|smartphone|mobile|device)\b", hand_action_src, flags=re.IGNORECASE):
+                hand_action_src = "resting head on hand"
+
+        if hand_action_src:
             # 根据自拍风格调整手部动作描述
             if selfie_style == "standard":
                 # 前置自拍：强调单手动作，避免双手
                 hand_prompt = (
-                    f"(visible free hand {actions['hand_action']}:1.4), "
+                    f"(visible free hand {hand_action_src}:1.4), "
                     "(only one hand visible in frame:1.5), "
                     "(single hand gesture:1.3)"
                 )
             else:
                 # 对镜自拍：可以看到两只手
-                hand_prompt = f"({actions['hand_action']}:1.3)"
+                hand_prompt = f"({hand_action_src}:1.3)"
             prompt_parts.append(hand_prompt)
 
         # 5. 服装
@@ -313,10 +329,7 @@ class SceneActionGenerator:
             prompt_parts.append(schedule_entry.accessories.strip())
 
         # 7. 地点
-        if (
-            schedule_entry.location_prompt
-            and schedule_entry.location_prompt.strip()
-        ):
+        if schedule_entry.location_prompt and schedule_entry.location_prompt.strip():
             prompt_parts.append(schedule_entry.location_prompt.strip())
 
         # 8. 环境
@@ -328,10 +341,7 @@ class SceneActionGenerator:
             prompt_parts.append(schedule_entry.lighting.strip())
 
         # 10. 天气上下文（如果有）
-        if (
-            schedule_entry.weather_context
-            and schedule_entry.weather_context.strip()
-        ):
+        if schedule_entry.weather_context and schedule_entry.weather_context.strip():
             prompt_parts.append(schedule_entry.weather_context.strip())
 
         # 11. 自拍风格特定设置
@@ -381,9 +391,7 @@ class SceneActionGenerator:
             负面提示词字符串
         """
         # 基础负面提示词
-        base_negative = str(
-            self.get_config("selfie.negative_prompt", "")
-        ).strip()
+        base_negative = str(self.get_config("selfie.negative_prompt", "")).strip()
 
         if selfie_style == "standard":
             # 前置自拍需要额外的防双手负面词
@@ -404,9 +412,7 @@ class SceneActionGenerator:
 
         return base_negative
 
-    def create_caption_context(
-        self, schedule_entry: ScheduleEntry
-    ) -> Dict[str, str]:
+    def create_caption_context(self, schedule_entry: ScheduleEntry) -> Dict[str, str]:
         """
         创建配文生成的上下文信息
 

@@ -7,7 +7,8 @@ v3.5.0-beta.7 更新：
 - 新增 exclude_hand_actions 参数，用于自拍模式下排除手部动作描述
 - 职责划分：优化器负责场景/服装/表情/光线/画质，手部动作由 _process_selfie_prompt 统一控制
 """
-from typing import Tuple, Optional
+
+from typing import Tuple
 from src.common.logger import get_logger
 from src.plugin_system.apis import llm_api
 
@@ -124,7 +125,7 @@ class PromptOptimizer:
                 logger.debug(f"{self.log_prefix} 使用自拍模式系统提示词（排除手部动作）")
             else:
                 system_prompt = OPTIMIZER_SYSTEM_PROMPT
-            
+
             # 构建完整 prompt
             full_prompt = f"{system_prompt}\n\nInput: {user_description.strip()}\nOutput:"
 
@@ -162,11 +163,10 @@ class PromptOptimizer:
         prefixes_to_remove = ["Output:", "output:", "Prompt:", "prompt:"]
         for prefix in prefixes_to_remove:
             if result.startswith(prefix):
-                result = result[len(prefix):].strip()
+                result = result[len(prefix) :].strip()
 
         # 移除首尾引号
-        if (result.startswith('"') and result.endswith('"')) or \
-           (result.startswith("'") and result.endswith("'")):
+        if (result.startswith('"') and result.endswith('"')) or (result.startswith("'") and result.endswith("'")):
             result = result[1:-1]
 
         # 移除多余换行
@@ -178,6 +178,7 @@ class PromptOptimizer:
 # 全局优化器实例
 _optimizer_instance = None
 
+
 def get_optimizer(log_prefix: str = "[PromptOptimizer]") -> PromptOptimizer:
     """获取提示词优化器实例（单例）"""
     global _optimizer_instance
@@ -187,9 +188,7 @@ def get_optimizer(log_prefix: str = "[PromptOptimizer]") -> PromptOptimizer:
 
 
 async def optimize_prompt(
-    user_description: str,
-    log_prefix: str = "[PromptOptimizer]",
-    exclude_hand_actions: bool = False
+    user_description: str, log_prefix: str = "[PromptOptimizer]", exclude_hand_actions: bool = False
 ) -> Tuple[bool, str]:
     """便捷函数：优化提示词
 

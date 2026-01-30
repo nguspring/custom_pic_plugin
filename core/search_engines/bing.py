@@ -48,7 +48,7 @@ class BingImageEngine(BaseSearchEngine):
                 "count": min(num_results, 150),
                 "cw": 1177,
                 "ch": 826,
-                "FORM": "HDRSC2"
+                "FORM": "HDRSC2",
             }
 
             # 尝试多个Bing图片搜索域名
@@ -88,12 +88,14 @@ class BingImageEngine(BaseSearchEngine):
                             title: str = m_data.get("t", "")
 
                             if image_url and image_url.startswith(("http://", "https://")):
-                                results.append(SearchResult(
-                                    title=title or query,
-                                    url=image_url,
-                                    image=image_url,
-                                    thumbnail=thumbnail_url or image_url
-                                ))
+                                results.append(
+                                    SearchResult(
+                                        title=title or query,
+                                        url=image_url,
+                                        image=image_url,
+                                        thumbnail=thumbnail_url or image_url,
+                                    )
+                                )
                                 continue
                         except json.JSONDecodeError:
                             # JSON解析失败，尝试备用方法
@@ -112,12 +114,9 @@ class BingImageEngine(BaseSearchEngine):
 
                             if image_url.startswith(("http://", "https://")):
                                 title = img_elem.get("alt") or query
-                                results.append(SearchResult(
-                                    title=title,
-                                    url=image_url,
-                                    image=image_url,
-                                    thumbnail=image_url
-                                ))
+                                results.append(
+                                    SearchResult(title=title, url=image_url, image=image_url, thumbnail=image_url)
+                                )
                 except Exception as e:
                     logger.debug(f"解析Bing图片元素失败: {e}")
                     continue

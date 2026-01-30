@@ -1,4 +1,5 @@
 """豆包（火山引擎）API客户端"""
+
 from typing import Dict, Any, Tuple, Optional
 
 from .base_client import BaseApiClient, logger
@@ -15,7 +16,7 @@ class DoubaoClient(BaseApiClient):
         model_config: Dict[str, Any],
         size: str,
         strength: Optional[float] = None,
-        input_image_base64: Optional[str] = None
+        input_image_base64: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """发送豆包格式的HTTP请求生成图片"""
         try:
@@ -23,7 +24,9 @@ class DoubaoClient(BaseApiClient):
             try:
                 from volcenginesdkarkruntime import Ark  # type: ignore
             except ImportError:
-                logger.error(f"{self.log_prefix} (Doubao) 缺少volcenginesdkarkruntime库，请安装: pip install 'volcengine-python-sdk[ark]'")
+                logger.error(
+                    f"{self.log_prefix} (Doubao) 缺少volcenginesdkarkruntime库，请安装: pip install 'volcengine-python-sdk[ark]'"
+                )
                 return False, "缺少豆包SDK，请安装volcengine-python-sdk[ark]"
 
             # 获取代理配置
@@ -39,10 +42,7 @@ class DoubaoClient(BaseApiClient):
             # 如果启用了代理，配置代理
             if proxy_config:
                 proxy_url = proxy_config["http"]
-                client_kwargs["proxies"] = {
-                    "http://": proxy_url,
-                    "https://": proxy_url
-                }
+                client_kwargs["proxies"] = {"http://": proxy_url, "https://": proxy_url}
                 client_kwargs["timeout"] = proxy_config["timeout"]
 
             client = Ark(**client_kwargs)
@@ -57,7 +57,7 @@ class DoubaoClient(BaseApiClient):
                 "prompt": prompt_add,
                 "size": size,
                 "response_format": "url",
-                "watermark": model_config.get("watermark", True)
+                "watermark": model_config.get("watermark", True),
             }
 
             # 如果有输入图片，需要特殊处理
