@@ -211,7 +211,7 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name: str = "selfie_painter"  # type: ignore[assignment]
-    plugin_version: str = "3.5.2-beta.1"
+    plugin_version: str = "3.5.2-beta.2"
     plugin_author: str = "Ptrel，Rabbit，saberlights Kiuon，nguspring"
     enable_plugin: bool = True  # type: ignore[assignment]
     dependencies: List[str] = []  # type: ignore[assignment]
@@ -314,7 +314,7 @@ class CustomPicPlugin(BasePlugin):
                 order=1,
             ),
             "config_version": ConfigField(
-                type=str, default="3.5.2-beta.1", description="插件配置版本号", disabled=True, order=2
+                type=str, default="3.5.2-beta.2", description="插件配置版本号", disabled=True, order=2
             ),
             "enabled": ConfigField(
                 type=bool, default=False, description="是否启用插件，开启后可使用画图和风格转换功能", order=3

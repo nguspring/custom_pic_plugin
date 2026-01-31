@@ -682,28 +682,29 @@ class ScheduleGenerator:
         is_holiday: bool,
         weather: str,
     ) -> Optional[DailySchedule]:
-        """
-        解析 LLM 响应为 DailySchedule
+        """解析 LLM 响应为 DailySchedule。
 
-        Args:
-            response: LLM 响应字符串
-            date: 日期
-            day_of_week: 星期几
-            is_holiday: 是否假期
-            weather: 天气
-
-        Returns:
-            DailySchedule 实例，失败时返回 None
+        注意：LLM 输出可能包含 markdown 代码块、前后缀说明文字，并且条目里可能包含嵌套数组
+        （例如 scene_variations）。因此不能用简单正则截取最短 "[...]" 来提取 JSON。
         """
         logger.debug(f"开始解析 LLM 响应，长度: {len(response)}")
+
+        json_content: Optional[str] = None
 
         try:
             # 尝试提取 JSON 数组
             json_content = self._extract_json_array(response)
 
             if not json_content:
-                logger.warning("未能从响应中提取 JSON 数组")
+                head = (response or "")[:240].replace("\n", "\\n")
+                logger.warning(f"未能从响应中提取 JSON 数组，response_head={head}")
                 return None
+
+            logger.debug(
+                "提取到 JSON 数组，长度=%s，head=%s",
+                len(json_content),
+                json_content[:160].replace("\n", "\\n"),
+            )
 
             entries_data = json.loads(json_content)
 
@@ -742,42 +743,70 @@ class ScheduleGenerator:
             return schedule
 
         except json.JSONDecodeError as e:
-            logger.error(f"JSON 解析失败: {e}")
+            extracted_len = len(json_content) if json_content else 0
+            logger.error(f"JSON 解析失败: {e} (extracted_len={extracted_len})")
+
+            # 追加上下文，方便定位是“截断”还是“模型输出脏数据”
+            if json_content and getattr(e, "pos", None) is not None:
+                pos = int(e.pos)
+                left = max(0, pos - 140)
+                right = min(len(json_content), pos + 140)
+                ctx = json_content[left:right].replace("\n", "\\n")
+                logger.error(f"JSON 解析失败上下文(pos={pos}, range={left}:{right}): {ctx}")
+
             return None
         except Exception as e:
             logger.error(f"解析响应异常: {e}")
             return None
 
     def _extract_json_array(self, text: str) -> Optional[str]:
+        """从文本中提取 JSON 数组。
+
+        旧实现使用正则 `\\[\\s*\\{[\\s\\S]*?\\}\\s*\\]` 做“最短匹配”，
+        在条目中存在嵌套数组（例如 scene_variations）时，会在内部 `]` 处提前截断，
+        导致 json.loads() 失败，从而触发 parse_failed -> fallback。
+
+        新实现优先使用 JSONDecoder.raw_decode 扫描，天然支持嵌套结构，且能忽略 JSON 之后的尾随文本。
         """
-        从文本中提取 JSON 数组
+        if not text:
+            return None
 
-        Args:
-            text: 包含 JSON 的文本
+        def looks_like_schedule_entries(obj: Any) -> bool:
+            if not isinstance(obj, list) or not obj:
+                return False
+            # 只看前几个元素即可，避免误把 scene_variations 之类的列表当成 entries
+            for item in obj[:5]:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("time_point") and item.get("activity_type"):
+                    return True
+            return False
 
-        Returns:
-            提取的 JSON 字符串，失败时返回 None
-        """
-        # 尝试直接匹配数组
-        array_match = re.search(r"\[\s*\{[\s\S]*?\}\s*\]", text)
-        if array_match:
-            return array_match.group()
-
-        # 尝试匹配 markdown 代码块中的 JSON
-        code_block_match = re.search(r"```(?:json)?\s*(\[\s*\{[\s\S]*?\}\s*\])\s*```", text)
-        if code_block_match:
-            return code_block_match.group(1)
-
-        # 尝试查找任何看起来像 JSON 数组的内容
-        # 寻找第一个 [ 和最后一个 ]
-        start = text.find("[")
-        end = text.rfind("]")
-        if start != -1 and end != -1 and end > start:
-            potential_json = text[start : end + 1]
+        # Strategy 1: 扫描所有 '['，尝试从该位置 raw_decode 出一个 JSON list
+        decoder = json.JSONDecoder()
+        for m in re.finditer(r"\[", text):
+            idx = m.start()
             try:
-                json.loads(potential_json)
-                return potential_json
-            except json.JSONDecodeError:
+                obj, end = decoder.raw_decode(text[idx:])
+            except Exception:
+                continue
+
+            if looks_like_schedule_entries(obj):
+                extracted = text[idx : idx + end]
+                logger.debug(f"从响应中提取到 JSON 数组(raw_decode_scan): start={idx}, len={len(extracted)}")
+                return extracted
+
+        # Strategy 2: 兼容：如果文本里有完整 JSON 数组但不满足 looks_like（例如字段缺失），
+        # 仍尝试从第一个 '[' 位置 raw_decode 出 list 作为兜底。
+        first = text.find("[")
+        if first != -1:
+            try:
+                obj, end = decoder.raw_decode(text[first:])
+                if isinstance(obj, list):
+                    extracted = text[first : first + end]
+                    logger.debug(f"从响应中提取到 JSON 数组(raw_decode_first): start={first}, len={len(extracted)}")
+                    return extracted
+            except Exception:
                 pass
 
         return None
