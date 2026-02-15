@@ -1,5 +1,7 @@
 from typing import List, Tuple, Type, Dict, Any
 import os
+import copy
+import re
 
 from src.plugin_system.base.base_plugin import BasePlugin
 from src.plugin_system.base.component_types import ComponentInfo
@@ -25,7 +27,7 @@ def _create_model_config_schema(
     name: str = "Model",
     model: str = "model-name",
     base_url: str = "https://api-inference.modelscope.cn/v1",
-    api_key: str = "Bearer xxxxxxxxxxxxxxxxxxxxxx",
+    api_key: str = "",
     format_type: str = "modelscope",
     default_size: str = "1024x1024",
     guidance_scale: float = 2.5,
@@ -66,7 +68,7 @@ def _create_model_config_schema(
         "api_key": ConfigField(
             type=str,
             default=api_key,
-            description="API密钥。OpenAI/modelscope格式需'Bearer '前缀，豆包/Gemini格式无需前缀",
+            description="API密钥。OpenAI/modelscope格式需'Bearer '前缀，豆包/Gemini格式无需前缀。默认留空，请自行填写",
             input_type="password",
             placeholder="Bearer sk-xxx 或 sk-xxx",
             order=3,
@@ -211,7 +213,7 @@ class CustomPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name: str = "selfie_painter"  # type: ignore[assignment]
-    plugin_version: str = "3.5.2-beta.2"
+    plugin_version: str = "3.5.3"
     plugin_author: str = "Ptrel，Rabbit，saberlights Kiuon，nguspring"
     enable_plugin: bool = True  # type: ignore[assignment]
     dependencies: List[str] = []  # type: ignore[assignment]
@@ -314,7 +316,7 @@ class CustomPicPlugin(BasePlugin):
                 order=1,
             ),
             "config_version": ConfigField(
-                type=str, default="3.5.2-beta.2", description="插件配置版本号", disabled=True, order=2
+                type=str, default="3.5.3", description="插件配置版本号", disabled=True, order=2
             ),
             "enabled": ConfigField(
                 type=bool, default=False, description="是否启用插件，开启后可使用画图和风格转换功能", order=3
@@ -912,6 +914,9 @@ class CustomPicPlugin(BasePlugin):
         **_generate_model_schemas(),
     }
 
+    _MODEL_ID_RE = re.compile(r"^model(?P<num>\d+)$", re.IGNORECASE)
+    _DEFAULT_MODEL_IDS = [f"model{i}" for i in range(1, 8)]
+
     def __init__(self, plugin_dir: str):
         """初始化插件，集成增强配置管理器"""
         import toml
@@ -961,6 +966,11 @@ class CustomPicPlugin(BasePlugin):
 
         # 检查并更新配置（如果需要），传入原始配置
         self._enhance_config_management(original_config)
+
+        # 重新同步 WebUI 配置快照，避免 super().__init__ 期间的旧内存配置导致页面显示为旧值
+        current_config = self.enhanced_config_manager.load_config()
+        if isinstance(current_config, dict) and current_config:
+            self.config = current_config
 
         # 检查插件启用状态和定时自拍配置
         from src.common.logger import get_logger as get_logger_func
@@ -1126,6 +1136,148 @@ class CustomPicPlugin(BasePlugin):
             default_config[section] = section_config
 
         return default_config
+
+    def _get_model_ids_from_config(self) -> List[str]:
+        models = self.config.get("models", {})
+        if not isinstance(models, dict):
+            return self._DEFAULT_MODEL_IDS.copy()
+
+        parsed: List[Tuple[int, str]] = []
+        for key in models:
+            if not isinstance(key, str):
+                continue
+            match = self._MODEL_ID_RE.match(key)
+            if not match:
+                continue
+            parsed.append((int(match.group("num")), key.lower()))
+
+        if not parsed:
+            return self._DEFAULT_MODEL_IDS.copy()
+
+        parsed.sort(key=lambda item: item[0])
+        return [item[1] for item in parsed]
+
+    def _sync_style_fields(
+        self,
+        *,
+        sections: Dict[str, Any],
+        section_name: str,
+        config_key: str,
+        template_key: str,
+        prefix: str,
+        textarea: bool,
+    ) -> None:
+        section = sections.get(section_name)
+        if not isinstance(section, dict):
+            return
+
+        fields = section.get("fields")
+        if not isinstance(fields, dict):
+            return
+
+        template = fields.get(template_key)
+        if not isinstance(template, dict):
+            return
+
+        hint = fields.get("hint")
+        config_table = self.config.get(config_key, {})
+        if not isinstance(config_table, dict):
+            config_table = {}
+
+        rebuilt: Dict[str, Any] = {}
+        if isinstance(hint, dict):
+            hint_field = copy.deepcopy(hint)
+            hint_field["disabled"] = True
+            rebuilt["hint"] = hint_field
+
+        keys = sorted([k for k in config_table.keys() if isinstance(k, str) and k != "hint"])
+        order = 1
+        for key in keys:
+            field = copy.deepcopy(template)
+            field["name"] = key
+            field["label"] = key
+            field["default"] = config_table.get(key, field.get("default", ""))
+            field["description"] = f"{prefix}{key}"
+            field["order"] = order
+            field["input_type"] = "textarea" if textarea else "text"
+            if textarea:
+                field["rows"] = 3
+            rebuilt[key] = field
+            order += 1
+
+        section["fields"] = rebuilt
+
+    def get_webui_config_schema(self) -> Dict[str, Any]:
+        schema = super().get_webui_config_schema()
+        sections = schema.get("sections", {})
+        if not isinstance(sections, dict):
+            return schema
+
+        model_ids = self._get_model_ids_from_config()
+        allowed_sections = {f"models.{mid}" for mid in model_ids}
+
+        for section_name in list(sections.keys()):
+            if section_name.startswith("models.model") and section_name not in allowed_sections:
+                sections.pop(section_name, None)
+
+        template_model_section = sections.get("models.model1")
+        if isinstance(template_model_section, dict):
+            for mid in model_ids:
+                section_name = f"models.{mid}"
+                match = self._MODEL_ID_RE.match(mid)
+                model_number = int(match.group("num")) if match else 1
+
+                if section_name not in sections:
+                    new_section = copy.deepcopy(template_model_section)
+                    new_section["name"] = section_name
+                    new_section["label"] = f"模型{model_number}配置"
+                    sections[section_name] = new_section
+
+                current = sections.get(section_name, {})
+                if isinstance(current, dict):
+                    current["title"] = f"模型{model_number}配置"
+                    current["label"] = f"模型{model_number}配置"
+                    current["order"] = 13 + model_number
+
+                model_cfg = (
+                    self.config.get("models", {}).get(mid, {})
+                    if isinstance(self.config.get("models", {}), dict)
+                    else {}
+                )
+                current_fields = current.get("fields") if isinstance(current, dict) else None
+                if isinstance(current_fields, dict) and isinstance(model_cfg, dict):
+                    for fname, fmeta in current_fields.items():
+                        if isinstance(fmeta, dict) and fname in model_cfg:
+                            fmeta["default"] = model_cfg.get(fname)
+
+        self._sync_style_fields(
+            sections=sections,
+            section_name="styles",
+            config_key="styles",
+            template_key="cartoon",
+            prefix="风格提示词：",
+            textarea=True,
+        )
+        self._sync_style_fields(
+            sections=sections,
+            section_name="style_aliases",
+            config_key="style_aliases",
+            template_key="cartoon",
+            prefix="风格别名：",
+            textarea=False,
+        )
+
+        layout = schema.get("layout")
+        if isinstance(layout, dict):
+            tabs = layout.get("tabs")
+            if isinstance(tabs, list):
+                for tab in tabs:
+                    if isinstance(tab, dict) and tab.get("id") == "models":
+                        tab["sections"] = ["models"] + [f"models.{mid}" for mid in model_ids]
+                        break
+
+        schema["sections"] = sections
+        return schema
 
     def get_plugin_components(self) -> List[Tuple[ComponentInfo, Type]]:
         """返回插件包含的组件列表"""
